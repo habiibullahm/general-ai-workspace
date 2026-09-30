@@ -45,7 +45,8 @@ export async function POST(request: Request) {
   try { responseStream = await chatProvider.stream(selected.data, context, aborter.signal); }
   catch (error) {
     if (error instanceof Error && error.message.startsWith("Missing AI configuration:")) console.error(error.message);
-    await supabase.from("messages").update({ content: clientCancelled ? "Response stopped." : "Response unavailable.", status: clientCancelled ? "interrupted" : "error" }).eq("id", assistant.id);
+    const { error: persistError } = await supabase.from("messages").update({ content: clientCancelled ? "Response stopped." : "Response unavailable.", status: clientCancelled ? "interrupted" : "error" }).eq("id", assistant.id);
+    if (persistError) console.error("assistant_state_persist_failed");
     request.signal.removeEventListener("abort", onRequestAbort);
     return NextResponse.json({ error: safeError }, { status: 502 });
   }
@@ -55,20 +56,30 @@ export async function POST(request: Request) {
       let output = ""; let completed = false;
       const persist = async (status: "complete" | "interrupted" | "error") => {
         const content = output || (status === "interrupted" ? "Response stopped." : "Response unavailable.");
-        await supabase.from("messages").update({ content, status }).eq("id", assistant.id);
+        const { data, error } = await supabase.from("messages").update({ content, status }).eq("id", assistant.id).select("id").maybeSingle();
+        return !error && Boolean(data);
       };
       try {
         for await (const item of readOpenAiSse(responseStream)) {
           if (item.type === "done") { completed = true; continue; }
           output += item.text; controller.enqueue(encoder.encode(event("delta", { text: item.text })));
         }
-        if (clientCancelled || request.signal.aborted) { await persist("interrupted"); if (!clientCancelled) controller.enqueue(encoder.encode(event("status", { status: "interrupted" }))); }
-        else if (completed && output.length > 0) { await persist("complete"); controller.enqueue(encoder.encode(event("status", { status: "complete" }))); }
-        else { await persist("error"); controller.enqueue(encoder.encode(event("error", { error: safeError }))); }
+        if (clientCancelled || request.signal.aborted) {
+          const saved = await persist("interrupted");
+          if (!clientCancelled) controller.enqueue(encoder.encode(saved ? event("status", { status: "interrupted" }) : event("error", { error: safeError })));
+        } else if (completed && output.length > 0) {
+          if (await persist("complete")) controller.enqueue(encoder.encode(event("status", { status: "complete" })));
+          else { await persist("error"); controller.enqueue(encoder.encode(event("error", { error: safeError }))); }
+        } else {
+          await persist("error");
+          controller.enqueue(encoder.encode(event("error", { error: safeError })));
+        }
       } catch {
         const interrupted = clientCancelled || request.signal.aborted;
-        await persist(interrupted ? "interrupted" : "error");
+        let saved = false;
+        try { saved = await persist(interrupted ? "interrupted" : "error"); } catch { /* Best effort if the database is unavailable. */ }
         if (!interrupted) controller.enqueue(encoder.encode(event("error", { error: safeError })));
+        else if (!clientCancelled) controller.enqueue(encoder.encode(saved ? event("status", { status: "interrupted" }) : event("error", { error: safeError })));
       } finally {
         request.signal.removeEventListener("abort", onRequestAbort);
         if (!clientCancelled) { controller.enqueue(encoder.encode(event("done", {}))); controller.close(); }

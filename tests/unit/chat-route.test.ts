@@ -42,7 +42,7 @@ describe("POST /api/chat", () => {
       { data: rows, error: null },
       { data: { position: 2 }, error: null },
       { data: { id: "assistant-message" }, error: null },
-      { data: null, error: null },
+      { data: { id: "assistant-message" }, error: null },
     ];
     const from = vi.fn((table: string) => {
       if (table === "conversations") return query({ data: { id: "conversation", selected_model: "Balanced" }, error: null });
@@ -60,6 +60,28 @@ describe("POST /api/chat", () => {
     expect(stream).toHaveBeenCalledWith("Balanced", [{ role: "user", content: "hello" }], expect.any(AbortSignal));
     expect(writes).toContainEqual(expect.objectContaining({ role: "assistant", content: "…", status: "streaming", position: 3 }));
     expect(writes).toContainEqual(expect.objectContaining({ content: "Hello", status: "complete" }));
+  });
+
+  it("does not announce completion when the assistant response failed to persist", async () => {
+    const writes: unknown[] = [];
+    const results = [
+      { data: { id: "user-message", position: 1 }, error: null },
+      { data: [{ role: "user", content: "hello", status: "complete", position: 1 }], error: null },
+      { data: { position: 1 }, error: null },
+      { data: { id: "assistant-message" }, error: null },
+      { data: null, error: { message: "database unavailable" } },
+      { data: { id: "assistant-message" }, error: null },
+    ];
+    const from = vi.fn((table: string) => table === "conversations"
+      ? query({ data: { id: "conversation", selected_model: "Balanced" }, error: null })
+      : query(results.shift()!, (write) => writes.push(write)));
+    createClient.mockResolvedValue({ auth: { getUser: async () => ({ data: { user: { id: "owner" } }, error: null }) }, from });
+    stream.mockResolvedValue(sseBody("Hello"));
+    const response = await POST(validRequest());
+    const body = await response.text();
+    expect(body).not.toContain('event: status\ndata: {"status":"complete"}');
+    expect(body).toContain('event: error');
+    expect(writes).toContainEqual(expect.objectContaining({ content: "Hello", status: "error" }));
   });
 
   it("stores a safe error state when the provider fails without exposing its failure details", async () => {
