@@ -108,4 +108,22 @@ describe("Supabase row-level security", () => {
     const rows = await asUser(userA, (tx) => tx`select id from public.users`);
     expect(rows.map((row) => row.id)).toEqual([userA]);
   });
+
+  it("persists a conversation, selected model, ordered user history, rename, and delete", async () => {
+    const id = randomUUID();
+    await asUser(userA, async (tx) => {
+      await tx`insert into public.conversations (id, user_id, title, selected_model) values (${id}, ${userA}, 'New chat', 'Reasoning')`;
+      await tx`insert into public.messages (conversation_id, user_id, role, content, position) values (${id}, ${userA}, 'user', 'first prompt', 1), (${id}, ${userA}, 'user', 'second prompt', 2)`;
+      const conversations = await tx`select id, title, selected_model from public.conversations where id = ${id}`;
+      expect(conversations).toEqual([{ id, title: "New chat", selected_model: "Reasoning" }]);
+      const messages = await tx`select content, position from public.messages where conversation_id = ${id} order by position asc`;
+      expect(messages).toEqual([{ content: "first prompt", position: 1 }, { content: "second prompt", position: 2 }]);
+      await tx`update public.conversations set title = 'Renamed chat' where id = ${id}`;
+      const renamed = await tx`select title from public.conversations where id = ${id}`;
+      expect(renamed[0].title).toBe("Renamed chat");
+      await tx`delete from public.conversations where id = ${id}`;
+      const deleted = await tx`select id from public.conversations where id = ${id}`;
+      expect(deleted).toHaveLength(0);
+    });
+  });
 });

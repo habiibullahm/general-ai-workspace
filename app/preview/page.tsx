@@ -5,5 +5,5 @@ export const dynamic = "force-dynamic";
 
 export default function PreviewPage() {
   if (process.env.NODE_ENV === "production") notFound();
-  return <ChatWorkspace email="preview@nibie.local" />;
+  return <ChatWorkspace email="preview@nibie.local" preview />;
 }

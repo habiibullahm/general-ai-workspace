@@ -24,6 +24,11 @@ button:focus-visible, a:focus-visible, select:focus-visible, textarea:focus-visi
 .history-item:hover { background: #eeece7; color: #393830; }
 .history-item.is-active { background: #ebe9e3; color: #33342c; font-weight: 550; }
 .history-item.is-active svg { color: #747967; }
+.history-entry { display: flex; align-items: center; }
+.history-entry .history-item { flex: 1; min-width: 0; }
+.history-action { display: grid; place-items: center; flex: none; width: 25px; height: 27px; padding: 0; border: 0; border-radius: 6px; color: #aaa69d; background: transparent; cursor: pointer; opacity: 0; }
+.history-entry:hover .history-action, .history-action:focus-visible { opacity: 1; }
+.history-action:hover { color: #55544c; background: #eeece7; }
 .account-area { margin-top: auto; padding-top: 10px; border-top: 1px solid #e7e4de; }
 .account-card { display: flex; align-items: center; gap: 9px; min-height: 46px; padding: 0 5px; }
 .avatar, .user-avatar { display: grid; place-items: center; flex: none; width: 29px; height: 29px; border-radius: 50%; background: #dedbd2; color: #626258; font-size: 11px; font-weight: 600; }
