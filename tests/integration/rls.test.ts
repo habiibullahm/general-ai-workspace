@@ -3,16 +3,12 @@ import { resolve } from "node:path";
 import postgres, { type TransactionSql } from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
+import { assertSafeIntegrationDatabaseUrl } from "../../lib/config/test-database";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 describe("Supabase row-level security", () => {
   const connectionString = process.env.TEST_DATABASE_URL;
-  if (!connectionString) {
-    throw new Error("TEST_DATABASE_URL is required for the RLS integration suite.");
-  }
-  if (new URL(connectionString).pathname !== "/general_ai_workspace_test") {
-    throw new Error("RLS tests may only reset the dedicated general_ai_workspace_test database.");
-  }
+  assertSafeIntegrationDatabaseUrl(connectionString, process.env.ALLOW_TEST_DATABASE_RESET);
 
   const sql = postgres(connectionString, { max: 1 });
   const db = drizzle(sql);
