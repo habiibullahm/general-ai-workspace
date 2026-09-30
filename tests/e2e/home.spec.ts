@@ -32,7 +32,7 @@ test("desktop chat workspace opens history and submits local messages", async ({
   await expect.poll(() => composer.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThan(oneLineHeight);
   await composer.press("Enter");
   await expect(page.getByText("A local preview message\nsecond line")).toBeVisible();
-  await expect(page.getByRole("status")).toContainText("Replies are not connected yet");
+  await expect(page.getByText("Your message is shown in this local preview.")).toContainText("Replies are not connected yet");
   await expect(page.getByLabel("Response mode")).toHaveValue("Balanced");
 });
 

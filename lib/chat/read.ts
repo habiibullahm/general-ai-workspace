@@ -10,7 +10,7 @@ export type ConversationSummary = {
   created_at: string;
   updated_at: string;
 };
-export type PersistedMessage = { id: string; role: "user" | "assistant"; content: string; position: number };
+export type PersistedMessage = { id: string; role: "user" | "assistant"; content: string; position: number; status?: "complete" | "streaming" | "interrupted" | "error" };
 
 export async function getChatWorkspaceData(conversationId: unknown) {
   const supabase = await createSupabaseServerClient();
@@ -27,7 +27,7 @@ export async function getChatWorkspaceData(conversationId: unknown) {
 
   const { data: messages, error: messagesError } = await supabase
     .from("messages")
-    .select("id,role,content,position")
+    .select("id,role,content,position,status")
     .eq("conversation_id", active.id)
     .order("position", { ascending: true });
   if (messagesError) return { conversations: conversations ?? [], messages: [] as PersistedMessage[], activeId: active.id, error: "This conversation couldn't be loaded. Refresh to try again." };

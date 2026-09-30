@@ -53,7 +53,7 @@ export async function updateConversationModelAction(id: unknown, model: unknown)
   }
 }
 
-export async function addUserMessageAction(id: unknown, content: unknown): Promise<ChatActionResult> {
+export async function addUserMessageAction(id: unknown, content: unknown): Promise<ChatActionResult<{ id: string; position: number }>> {
   const parsedId = validateConversationId(id);
   const parsedContent = validateMessage(content);
   if (!parsedId.success) return { error: "Choose a valid conversation." };
@@ -65,21 +65,21 @@ export async function addUserMessageAction(id: unknown, content: unknown): Promi
     const { data: last, error: positionError } = await supabase.from("messages").select("position").eq("conversation_id", parsedId.data).order("position", { ascending: false }).limit(1).maybeSingle();
     if (positionError) return failure();
     const position = (last?.position ?? 0) + 1;
-    const { error: insertError } = await supabase.from("messages").insert({
+    const { data: inserted, error: insertError } = await supabase.from("messages").insert({
       conversation_id: parsedId.data,
       user_id: user.id,
       role: "user",
       content: parsedContent.data,
       status: "complete",
       position,
-    });
-    if (insertError) return failure();
+    }).select("id,position").single();
+    if (insertError || !inserted) return failure();
     const updates: { updated_at: string; title?: string } = { updated_at: new Date().toISOString() };
     if (conversation.title === "New chat") updates.title = parsedContent.data.slice(0, 42).trimEnd() + (parsedContent.data.length > 42 ? "…" : "");
     const { error: updateError } = await supabase.from("conversations").update(updates).eq("id", parsedId.data);
     if (updateError) return failure();
     revalidatePath("/");
-    return {};
+    return { data: inserted };
   } catch {
     return { error: "Your session has expired or the service is unavailable. Please try again." };
   }

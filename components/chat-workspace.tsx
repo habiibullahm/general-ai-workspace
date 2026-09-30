@@ -35,6 +35,8 @@ export function ChatWorkspace({ email, initialData, preview = false }: { email: 
   const [mode, setMode] = useState<ChatModel>((conversations.find((item) => item.id === activeId)?.selected_model as ChatModel) ?? "Balanced");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sending, setSending] = useState(false);
+  const [streaming, setStreaming] = useState(false);
+  const streamController = useRef<AbortController | null>(null);
   const [notice, setNotice] = useState(initialData?.error ?? "");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -43,7 +45,7 @@ export function ChatWorkspace({ email, initialData, preview = false }: { email: 
   const shownConversations = [...new Map([...conversations, ...localConversations].map((item) => [item.id, item])).values()]
     .sort((left, right) => right.updated_at.localeCompare(left.updated_at) || left.id.localeCompare(right.id));
   const activeConversation = shownConversations.find((item) => item.id === activeId);
-  const messages = preview ? [...((activeConversation as Conversation | undefined)?.messages ?? []), ...(localMessages[activeId ?? ""] ?? [])] : activeId === initialData?.activeId ? initialData.messages : localMessages[activeId ?? ""] ?? [];
+  const messages = preview ? [...((activeConversation as Conversation | undefined)?.messages ?? []), ...(localMessages[activeId ?? ""] ?? [])] : localMessages[activeId ?? ""] ?? (activeId === initialData?.activeId ? initialData.messages : []);
 
   useEffect(() => {
     if (!textareaRef.current) return;
@@ -106,10 +108,35 @@ export function ChatWorkspace({ email, initialData, preview = false }: { email: 
       router.push(`/?conversation=${encodeURIComponent(id)}`);
     }
     const result = await addUserMessageAction(id, content);
-    if (result.error) { setNotice(result.error); setSending(false); return; }
-    setLocalMessages((items) => ({ ...items, [id!]: [...(items[id!] ?? (id === initialData?.activeId ? initialData.messages : [])), { id: `pending-${Date.now()}`, role: "user", content, position: messages.length + 1 }] }));
+    if (result.error || !result.data) { setNotice(result.error ?? "Message couldn't be saved."); setSending(false); return; }
+    const assistantId = `stream-${result.data.id}`;
+    setLocalMessages((items) => ({ ...items, [id!]: [...(items[id!] ?? (id === initialData?.activeId ? initialData.messages : [])), { id: result.data!.id, role: "user", content, position: result.data!.position }, { id: assistantId, role: "assistant", content: "…", position: result.data!.position + 1, status: "streaming" }] }));
     setLocalConversations((items) => items.map((item) => item.id === id ? { ...item, title: item.title === "New chat" ? content.slice(0, 42) + (content.length > 42 ? "…" : "") : item.title, updated_at: new Date().toISOString() } : item));
-    setDraft(""); router.refresh(); setSending(false);
+    setDraft(""); setSending(false); setStreaming(true);
+    const controller = new AbortController(); streamController.current = controller;
+    try {
+      const response = await fetch("/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ conversationId: id, userMessageId: result.data.id }), signal: controller.signal });
+      if (!response.ok || !response.body) { const payload = await response.json().catch(() => null); throw new Error(payload?.error ?? "Nibie couldn't complete that response. Please try again."); }
+      const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = "";
+      while (true) {
+        const { value, done } = await reader.read(); if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split("\n\n"); buffer = events.pop() ?? "";
+        for (const block of events) {
+          const type = block.match(/^event: (.+)$/m)?.[1]; const dataLine = block.match(/^data: (.+)$/m)?.[1]; if (!dataLine) continue;
+          const data = JSON.parse(dataLine) as { text?: string; status?: "complete" | "interrupted"; error?: string };
+          if (type === "delta" && data.text) setLocalMessages((items) => ({ ...items, [id!]: (items[id!] ?? []).map((message) => message.id === assistantId ? { ...message, content: message.content === "…" ? data.text! : message.content + data.text! } : message) }));
+          if (type === "status") setLocalMessages((items) => ({ ...items, [id!]: (items[id!] ?? []).map((message) => message.id === assistantId ? { ...message, content: message.content === "…" ? "Response stopped." : message.content, status: data.status } : message) }));
+          if (type === "error") throw new Error(data.error ?? "Nibie couldn't complete that response. Please try again.");
+        }
+      }
+      router.refresh();
+    } catch (error) {
+      const interrupted = controller.signal.aborted;
+      setLocalMessages((items) => ({ ...items, [id!]: (items[id!] ?? []).map((message) => message.id === assistantId ? { ...message, content: message.content === "…" ? (interrupted ? "Response stopped." : "Response unavailable.") : message.content, status: interrupted ? "interrupted" : "error" } : message) }));
+      if (!interrupted) setNotice(error instanceof Error ? error.message : "Nibie couldn't complete that response. Please try again.");
+      router.refresh();
+    } finally { streamController.current = null; setStreaming(false); }
   }
   async function changeMode(value: string) {
     const next = value as ChatModel; setMode(next);
@@ -148,7 +175,7 @@ export function ChatWorkspace({ email, initialData, preview = false }: { email: 
 
   return <main className="chat-workspace">{sidebar()}{drawerOpen && <div className="mobile-drawer"><button className="drawer-scrim" aria-label="Dismiss menu backdrop" onClick={() => { setDrawerOpen(false); menuButtonRef.current?.focus(); }} />{sidebar(true)}</div>}
     <section className="chat-main" aria-label="Chat workspace"><header className="chat-header"><button ref={menuButtonRef} className="icon-button mobile-menu-button" aria-label="Open conversation menu" onClick={() => setDrawerOpen(true)}><Menu size={21} /></button><div className="header-model"><span className="model-dot" /><span>Nibie</span><span className="header-divider">/</span><span className="header-context">A little room to think</span></div><button className="header-new-chat" onClick={() => void newChat()}><Plus size={16} /><span>New chat</span></button></header>
-      <div className={`conversation-scroll ${messages.length ? "has-messages" : "is-empty"}`}>{messages.length ? <div className="message-list" aria-live="polite">{messages.map((message) => <article className={`message-row ${message.role}`} key={message.id}><div className={`message-content ${message.role}`}>{message.role === "assistant" && <div className="message-author">Nibie</div>}<p>{message.content}</p></div>{message.role === "user" && <div className="user-avatar" aria-label="You">{email.slice(0, 1).toUpperCase()}</div>}</article>)}{notice && <p className="local-notice" role="status">{notice}</p>}</div> : <div className="welcome-panel">{notice && <p className="local-notice" role="status">{notice}</p>}<div className="welcome-icon"><Sparkles size={19} strokeWidth={1.7} /></div><p className="welcome-eyebrow">A LITTLE ROOM TO THINK</p><h1>What’s on your mind?</h1><p className="welcome-copy">A fresh page for ideas, questions, and whatever you’re working through.</p><div className="suggestion-list" aria-label="Suggestions">{suggestions.map((suggestion) => <button key={suggestion} onClick={() => { setDraft(suggestion); textareaRef.current?.focus(); }}>{suggestion}<span>↗</span></button>)}</div></div>}</div>
-      <div className="composer-dock"><form className="composer" onSubmit={(event) => void submitMessage(event)}><textarea ref={textareaRef} aria-label="Message Nibie" placeholder="Message Nibie…" value={draft} rows={1} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleKeyDown} /><div className="composer-tools"><div className="composer-left-tools"><button className="composer-icon" type="button" aria-label="Attach a file" title="Attachments are not available" onClick={() => setNotice("Attachments are not available yet.")}><FilePlus2 size={18} /></button><label className="mode-select-label" htmlFor="response-mode">Response mode</label><select id="response-mode" aria-label="Response mode" value={mode} onChange={(event) => void changeMode(event.target.value)}><option>Fast</option><option>Balanced</option><option>Reasoning</option></select><ChevronDown className="select-chevron" size={13} aria-hidden="true" /></div><button className="send-button" type="submit" aria-label="Send message" disabled={!draft.trim() || sending}>{sending ? <span className="send-spinner" /> : <ArrowUp size={18} strokeWidth={2.3} />}</button></div></form><p className="composer-caption">{preview ? "Mock workspace · Messages stay in this tab and are not saved." : "Your conversations are saved to your account."}</p></div>
+      <div className={`conversation-scroll ${messages.length ? "has-messages" : "is-empty"}`}>{messages.length ? <div className="message-list" aria-live="polite">{messages.map((message) => <article className={`message-row ${message.role}`} key={message.id}><div className={`message-content ${message.role}`}>{message.role === "assistant" && <div className="message-author">Nibie{message.status === "streaming" ? " · Thinking" : message.status === "interrupted" ? " · Stopped" : message.status === "error" ? " · Couldn't respond" : ""}</div>}<p>{message.content}</p></div>{message.role === "user" && <div className="user-avatar" aria-label="You">{email.slice(0, 1).toUpperCase()}</div>}</article>)}{notice && <p className="local-notice" role="status">{notice}</p>}</div> : <div className="welcome-panel">{notice && <p className="local-notice" role="status">{notice}</p>}<div className="welcome-icon"><Sparkles size={19} strokeWidth={1.7} /></div><p className="welcome-eyebrow">A LITTLE ROOM TO THINK</p><h1>What’s on your mind?</h1><p className="welcome-copy">A fresh page for ideas, questions, and whatever you’re working through.</p><div className="suggestion-list" aria-label="Suggestions">{suggestions.map((suggestion) => <button key={suggestion} onClick={() => { setDraft(suggestion); textareaRef.current?.focus(); }}>{suggestion}<span>↗</span></button>)}</div></div>}</div>
+      <div className="composer-dock"><form className="composer" onSubmit={(event) => void submitMessage(event)}><textarea ref={textareaRef} aria-label="Message Nibie" placeholder="Message Nibie…" value={draft} rows={1} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleKeyDown} /><div className="composer-tools"><div className="composer-left-tools"><button className="composer-icon" type="button" aria-label="Attach a file" title="Attachments are not available" onClick={() => setNotice("Attachments are not available yet.")}><FilePlus2 size={18} /></button><label className="mode-select-label" htmlFor="response-mode">Response mode</label><select id="response-mode" aria-label="Response mode" value={mode} onChange={(event) => void changeMode(event.target.value)}><option>Fast</option><option>Balanced</option><option>Reasoning</option></select><ChevronDown className="select-chevron" size={13} aria-hidden="true" /></div>{streaming ? <button className="send-button" type="button" aria-label="Stop response" onClick={() => streamController.current?.abort()}><X size={18} /></button> : <button className="send-button" type="submit" aria-label="Send message" disabled={!draft.trim() || sending}>{sending ? <span className="send-spinner" /> : <ArrowUp size={18} strokeWidth={2.3} />}</button>}</div></form><p className="composer-caption" role="status">{preview ? "Mock workspace · Messages stay in this tab and are not saved." : streaming ? "Nibie is responding · You can stop at any time." : "Your conversations are saved to your account."}</p></div>
     </section></main>;
 }

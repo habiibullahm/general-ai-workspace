@@ -76,9 +76,14 @@ Names only. Values live in the platform’s secret store and are never committed
 | `DATABASE_URL` | Server-only PostgreSQL migration connection |
 | `AI_BASE_URL` | Provider endpoint (OpenAI-compatible or adapter-specific) |
 | `AI_API_KEY` | Server-side only |
-| `AI_MODEL` | Chat / generation model name |
+| `AI_MODEL_FAST` | Provider model mapped to persisted `Fast` response mode; server-only |
+| `AI_MODEL_BALANCED` | Provider model mapped to persisted `Balanced` response mode; server-only |
+| `AI_MODEL_REASONING` | Provider model mapped to persisted `Reasoning` response mode; server-only |
+| `AI_PROVIDER` | Server-side adapter name; currently `openai-compatible` |
 | `RATE_LIMIT_PER_MINUTE` | Requests per client per minute |
 | `APP_ENV` | development \| staging \| production |
+
+The `openai-compatible` adapter sends server-side streaming requests to `${AI_BASE_URL}/chat/completions` using the configured model mapping and an authorization bearer token. Keep every `AI_*` variable server-only; diagnostics may name missing variables but must never include their values.
 
 ## Release gate
 
