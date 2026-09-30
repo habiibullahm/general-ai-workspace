@@ -22,4 +22,4 @@ Authenticated user → owner-scoped conversation/message queries → context ass
 
 ## Deferred decisions
 
-Exact auth implementation, attachment storage provider/limits, exact provider/model IDs, and ORM choice do not block this pack.
+Supabase Auth creates/deletes the corresponding public user row. Supabase Auth uses server-managed cookie sessions; Drizzle defines application schema/migrations, while runtime user data uses the cookie-bound Supabase client and RLS. Attachment storage provider/limits and exact provider/model IDs remain deferred.

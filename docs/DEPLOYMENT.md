@@ -6,7 +6,7 @@
 
 > Written for this project. Where these notes and the generated sections below disagree, these notes win.
 
-Target READY FOR PILOT. Preserve locked architecture: Next.js, PostgreSQL, configurable AI provider, Vercel; modular monolith, server-side provider calls, owner-scoped conversations, no vector search. Supabase Auth implementation details, attachment storage provider/limits, exact AI provider/model IDs, and ORM choice remain Coordinator decisions and do not block this Build Pack. Do not require source imports, RAG readiness, factual-source evaluation, or no-answer metrics. Model secrets stay server-side; document adapter-specific environment names when provider is selected.
+Target READY FOR PILOT. Preserve locked architecture: Next.js, PostgreSQL, configurable AI provider, Vercel; modular monolith, server-side provider calls, owner-scoped conversations, no vector search. Use Supabase Auth with server-managed cookie sessions, Supabase PostgreSQL, and Drizzle for schema/migrations. Attachment storage provider/limits and exact AI provider/model IDs remain deferred. Do not require source imports, RAG readiness, factual-source evaluation, or no-answer metrics. Model secrets stay server-side; document adapter-specific environment names when provider is selected.
 
 ## Target
 
@@ -70,11 +70,13 @@ Names only. Values live in the platform’s secret store and are never committed
 
 | Name | Purpose |
 | --- | --- |
-| `DATABASE_URL` | Database connection string |
+| `NEXT_PUBLIC_APP_URL` | Canonical app origin used for auth confirmation callbacks |
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL (public) |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable key; RLS protects user data |
+| `DATABASE_URL` | Server-only PostgreSQL migration connection |
 | `AI_BASE_URL` | Provider endpoint (OpenAI-compatible or adapter-specific) |
 | `AI_API_KEY` | Server-side only |
 | `AI_MODEL` | Chat / generation model name |
-| `AUTH_*` | Provider-specific auth configuration, defined after the auth implementation is selected |
 | `RATE_LIMIT_PER_MINUTE` | Requests per client per minute |
 | `APP_ENV` | development \| staging \| production |
 

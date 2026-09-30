@@ -6,7 +6,7 @@
 
 > Written for this project. Where these notes and the generated sections below disagree, these notes win.
 
-V1 custom chat requirements: persistent sidebar/history; selectable model; token streaming; stop/abort; retry/regenerate; edit/resend; safe Markdown and code copy; responsive desktop/mobile UI; attachment button/state/metadata and architecture extension point only. Explicitly exclude document parsing, PDF ingestion, image understanding, file-to-model processing, embeddings, vector search, RAG, citations, factual evidence checks, and knowledge-source coverage. Evaluation categories must be chat behavior, security/ownership, rendering, errors, responsive UX, and practical latency/reliability—not retrieval or evidence grounding. Auth provider, attachment storage/limits, provider/model IDs, and ORM remain deferred.
+V1 custom chat requirements: persistent sidebar/history; selectable model; token streaming; stop/abort; retry/regenerate; edit/resend; safe Markdown and code copy; responsive desktop/mobile UI; attachment button/state/metadata and architecture extension point only. Explicitly exclude document parsing, PDF ingestion, image understanding, file-to-model processing, embeddings, vector search, RAG, citations, factual evidence checks, and knowledge-source coverage. Evaluation categories must be chat behavior, security/ownership, rendering, errors, responsive UX, and practical latency/reliability—not retrieval or evidence grounding. Supabase Auth with server-managed cookie sessions and Drizzle ORM for PostgreSQL schema/migrations are Coordinator-selected implementation choices. Attachment storage/limits and exact AI provider/model IDs remain deferred.
 
 ## Summary
 

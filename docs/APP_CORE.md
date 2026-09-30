@@ -6,7 +6,7 @@
 
 > Written for this project. Where these notes and the generated sections below disagree, these notes win.
 
-Minimal productivity UI: warm neutral/off-white, subtle borders, generous whitespace, simple sidebar/history, central conversation, lightweight bottom composer. ChatGPT/Claude interaction patterns are inspiration, not a visual clone. Keep attachments to UI, state/model, metadata, and architecture extension point only: no parsing, PDF ingestion, image understanding, file-to-model processing, embeddings, vector search, or RAG. Preserve modular monolith; Next.js, PostgreSQL, configurable AI provider, Vercel; server-side provider calls and owner-scoped conversations. Exact Auth implementation, storage provider/limits, provider/model IDs, and ORM are deferred Coordinator decisions.
+Minimal productivity UI: warm neutral/off-white, subtle borders, generous whitespace, simple sidebar/history, central conversation, lightweight bottom composer. ChatGPT/Claude interaction patterns are inspiration, not a visual clone. Keep attachments to UI, state/model, metadata, and architecture extension point only: no parsing, PDF ingestion, image understanding, file-to-model processing, embeddings, vector search, or RAG. Preserve modular monolith; Next.js, PostgreSQL, configurable AI provider, Vercel; server-side provider calls and owner-scoped conversations. Use Supabase Auth with server-managed cookie sessions and Drizzle for schema/migrations; normal user-data paths rely on cookie-bound Supabase access and RLS, never service-role access. Attachment storage/limits and provider/model IDs remain deferred.
 
 ## Original idea
 
