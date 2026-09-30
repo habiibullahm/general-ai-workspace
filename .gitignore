@@ -7,3 +7,8 @@ coverage/
 .env.*
 !.env.example
 *.log
+*.tsbuildinfo
+/test-results/
+/playwright-report/
+/AGENTS.md
+/CLAUDE.md
