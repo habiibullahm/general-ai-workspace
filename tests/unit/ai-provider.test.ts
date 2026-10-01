@@ -16,4 +16,26 @@ describe("OpenAI-compatible provider adapter", () => {
       body: JSON.stringify({ model: "balanced-model", messages: [{ role: "user", content: "hello" }], stream: true }),
     }));
   });
+
+  it("adds reasoning_effort only for an explicit effort, never for auto or when omitted", async () => {
+    vi.stubEnv("AI_PROVIDER", "openai-compatible"); vi.stubEnv("AI_BASE_URL", "https://provider.invalid/v1"); vi.stubEnv("AI_API_KEY", "test-key");
+    vi.stubEnv("AI_MODEL_REASONING", "reason-model");
+    const fetchMock = vi.fn(async () => new Response(new ReadableStream<Uint8Array>({ start(controller) { controller.close(); } }), { status: 200 })); vi.stubGlobal("fetch", fetchMock);
+    const sentBody = (call: number) => JSON.parse((fetchMock.mock.calls[call] as unknown as [string, { body: string }])[1].body);
+    const messages = [{ role: "user" as const, content: "hello" }];
+    await openAiCompatibleProvider.stream("Reasoning", messages, new AbortController().signal);
+    await openAiCompatibleProvider.stream("Reasoning", messages, new AbortController().signal, { reasoning: "auto" });
+    await openAiCompatibleProvider.stream("Reasoning", messages, new AbortController().signal, { reasoning: "low" });
+    expect(sentBody(0)).not.toHaveProperty("reasoning_effort");
+    expect(sentBody(1)).not.toHaveProperty("reasoning_effort");
+    expect(sentBody(2)).toEqual({ model: "reason-model", messages, stream: true, reasoning_effort: "low" });
+  });
+
+  it("fails without calling the provider when the requested mode has no configured model", async () => {
+    vi.stubEnv("AI_PROVIDER", "openai-compatible"); vi.stubEnv("AI_BASE_URL", "https://provider.invalid/v1"); vi.stubEnv("AI_API_KEY", "test-key");
+    vi.stubEnv("AI_MODEL_BALANCED", "balanced-model"); vi.stubEnv("AI_MODEL_FAST", ""); vi.stubEnv("AI_MODEL_REASONING", "");
+    const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
+    await expect(openAiCompatibleProvider.stream("Fast", [{ role: "user", content: "hello" }], new AbortController().signal)).rejects.toThrow("AI provider request failed.");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

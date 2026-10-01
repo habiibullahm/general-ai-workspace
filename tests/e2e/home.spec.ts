@@ -33,7 +33,7 @@ test("desktop chat workspace opens history and submits local messages", async ({
   await composer.press("Enter");
   await expect(page.getByText("A local preview message\nsecond line")).toBeVisible();
   await expect(page.getByText("Your message is shown in this local preview.")).toContainText("Replies are not connected yet");
-  await expect(page.getByLabel("Response mode")).toHaveValue("Balanced");
+  await expect(page.getByRole("button", { name: "Model: Balanced" })).toBeVisible();
 });
 
 test("mobile chat workspace uses a keyboard-accessible conversation drawer", async ({ page }) => {
@@ -43,7 +43,7 @@ test("mobile chat workspace uses a keyboard-accessible conversation drawer", asy
   await page.getByRole("button", { name: "Open conversation menu" }).click();
   const menu = page.getByRole("dialog", { name: "Conversation menu" });
   await expect(menu.getByRole("button", { name: "Close menu" })).toBeFocused();
-  await page.getByRole("button", { name: "Sign out" }).focus();
+  await menu.getByRole("button", { name: "System theme" }).focus();
   await page.keyboard.press("Tab");
   await expect(menu.getByRole("link", { name: "Nibie home" })).toBeFocused();
   await page.getByRole("button", { name: "Learning the basics of astronomy" }).click();

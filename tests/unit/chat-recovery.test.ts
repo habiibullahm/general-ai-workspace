@@ -74,4 +74,26 @@ describe("recovery settlement against fresh server data", () => {
     expect(latestReplyFailed([row("error", { position: 2 }), row("complete", { id: "11111111-1111-4111-8111-111111111111", position: 4 })])).toBe(false);
     expect(latestReplyFailed([])).toBe(false);
   });
+
+  it("settles on the saved reply, without a failure notice, when Stop arrives after the server already finished", () => {
+    // Stop is classified as "outcome unknown", never as a failure; the server's saved state then decides what is shown.
+    const kind = classifyStreamFailure({ error: new Error("aborted"), aborted: true });
+    expect(kind).toBe("stopped");
+    expect(needsServerCheck(kind)).toBe(true);
+    const saved = [row("complete", { role: "user", id: "11111111-1111-4111-8111-111111111111", position: 1 }), row("complete")];
+    expect(isRecoverySettled(saved, id)).toBe(true);
+    expect(latestReplyFailed(saved)).toBe(false);
+  });
+
+  it("follows Stop, then Retry, then success: only the final saved state matters", () => {
+    const afterStop = [row("interrupted")];
+    expect(isRecoverySettled(afterStop, id)).toBe(true);
+    expect(latestReplyFailed(afterStop)).toBe(false);
+    // Retry replaces the reply with a new one that is streaming, then complete; a stale interrupted row never counts as the outcome.
+    const retried = "22222222-2222-4222-8222-222222222222";
+    expect(isRecoverySettled([row("streaming", { id: retried })], retried)).toBe(false);
+    const finished = [row("complete", { id: retried })];
+    expect(isRecoverySettled(finished, retried)).toBe(true);
+    expect(latestReplyFailed(finished)).toBe(false);
+  });
 });

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Temporary monogram. Replace this file with the final logo mark (see docs/BRAND.md). -->
+  <style>
+    .bg { fill: #9aa583; }
+    .fg { fill: #14150f; }
+    @media (prefers-color-scheme: light) { .bg { fill: #59614b; } .fg { fill: #fcfbf9; } }
+  </style>
+  <rect class="bg" width="64" height="64" rx="16"/>
+  <text class="fg" x="32" y="46" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="44">n</text>
+</svg>

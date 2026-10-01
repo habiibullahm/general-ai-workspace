@@ -8,5 +8,5 @@ if (missing.length) {
   console.error(`Authenticated chat verification requires: ${missing.join(", ")}`);
   process.exit(1);
 }
-const result = spawnSync(process.execPath, [fileURLToPath(new URL("../node_modules/@playwright/test/cli.js", import.meta.url)), "test", "tests/e2e/chat.spec.ts", "tests/e2e/last-turn.spec.ts", "tests/e2e/retry-reconcile.spec.ts", "--workers=1", ...process.argv.slice(2)], { stdio: "inherit" });
+const result = spawnSync(process.execPath, [fileURLToPath(new URL("../node_modules/@playwright/test/cli.js", import.meta.url)), "test", "tests/e2e/chat.spec.ts", "tests/e2e/last-turn.spec.ts", "tests/e2e/retry-reconcile.spec.ts", "tests/e2e/model-picker.spec.ts", "--workers=1", ...process.argv.slice(2)], { stdio: "inherit" });
 process.exit(result.status ?? 1);
