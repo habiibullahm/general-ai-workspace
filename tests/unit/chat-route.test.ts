@@ -145,6 +145,19 @@ describe("POST /api/chat", () => {
     } finally { logged.mockRestore(); }
   });
 
+  it("uses the regenerate RPC only when explicitly requested and rejects a non-boolean flag", async () => {
+    readyClient([]);
+    stream.mockResolvedValue(sseBody("fresh answer"));
+    const request = validRequest();
+    const regenerating = new Request(request.url, { method: "POST", headers: request.headers, body: JSON.stringify({ conversationId: "5e9bdcca-9205-4fea-a773-13952bb78c44", userMessageId: "b79e56e1-b479-46f4-97d3-30b2e22be90e", regenerate: true }) });
+    expect((await POST(regenerating)).status).toBe(200);
+    expect(claim).toHaveBeenCalledWith("regenerate_assistant_message", { p_conversation_id: "conversation", p_user_message_id: "b79e56e1-b479-46f4-97d3-30b2e22be90e" });
+    claim.mockClear();
+    const invalid = new Request(request.url, { method: "POST", headers: request.headers, body: JSON.stringify({ conversationId: "5e9bdcca-9205-4fea-a773-13952bb78c44", userMessageId: "b79e56e1-b479-46f4-97d3-30b2e22be90e", regenerate: "yes" }) });
+    expect((await POST(invalid)).status).toBe(400);
+    expect(claim).not.toHaveBeenCalled();
+  });
+
   it("aborts the provider request and persists interrupted state when the client disconnects", async () => {
     const writes: unknown[] = [];
     const results = [

@@ -191,4 +191,76 @@ describe("Supabase row-level security", () => {
     await asUser(userA, (tx) => tx`select * from public.append_user_message(${conversation}, ${randomUUID()}, 'newer')`);
     await expect(asUser(userA, (tx) => tx`select * from public.claim_assistant_message(${conversation}, ${message})`)).rejects.toMatchObject({ code: "PT409" });
   });
+  async function answeredConversation(prompt = "hello", reply = "first answer") {
+    const conversation = await newConversation();
+    const message = randomUUID();
+    await asUser(userA, (tx) => tx`select * from public.append_user_message(${conversation}, ${message}, ${prompt})`);
+    const [claimed] = await asUser(userA, (tx) => tx`select * from public.claim_assistant_message(${conversation}, ${message})`);
+    await asUser(userA, (tx) => tx`update public.messages set content = ${reply}, status = 'complete' where id = ${claimed.id} and status = 'streaming'`);
+    return { conversation, message, response: claimed.id as string };
+  }
+
+  it("regenerates a complete last response with a fresh UUID in the same position and fences the old one", async () => {
+    const { conversation, message, response } = await answeredConversation();
+    const [next] = await asUser(userA, (tx) => tx`select * from public.regenerate_assistant_message(${conversation}, ${message})`);
+    expect(next).toMatchObject({ position: 2, content: "…", status: "streaming", replayed: false });
+    expect(next.id).not.toBe(response);
+    const stale = await asUser(userA, (tx) => tx`update public.messages set content = 'stale', status = 'complete' where id = ${response} and status = 'streaming' returning id`);
+    expect(stale).toHaveLength(0);
+    await expect(asUser(userA, (tx) => tx`select * from public.regenerate_assistant_message(${conversation}, ${message})`)).rejects.toMatchObject({ code: "PT409" });
+    await expect(asUser(userA, (tx) => tx`select * from public.claim_assistant_message(${conversation}, ${message})`)).rejects.toMatchObject({ code: "PT409" });
+    await asUser(userA, (tx) => tx`update public.messages set content = 'second answer', status = 'complete' where id = ${next.id} and status = 'streaming'`);
+    const rows = await asUser(userA, (tx) => tx`select role, content, status, position from public.messages where conversation_id = ${conversation} order by position`);
+    expect(rows).toEqual([
+      { role: "user", content: "hello", status: "complete", position: 1 },
+      { role: "assistant", content: "second answer", status: "complete", position: 2 },
+    ]);
+  });
+
+  it("regenerates an errored or missing response, and refuses superseded prompts and other owners", async () => {
+    const { conversation, message, response } = await answeredConversation();
+    await asUser(userA, (tx) => tx`update public.messages set status = 'error', content = 'Response unavailable.' where id = ${response}`);
+    const [retry] = await asUser(userA, (tx) => tx`select * from public.regenerate_assistant_message(${conversation}, ${message})`);
+    expect(retry).toMatchObject({ position: 2, status: "streaming" });
+    await asUser(userA, (tx) => tx`delete from public.messages where id = ${retry.id}`);
+    const [unanswered] = await asUser(userA, (tx) => tx`select * from public.regenerate_assistant_message(${conversation}, ${message})`);
+    expect(unanswered).toMatchObject({ position: 2, status: "streaming" });
+    await asUser(userA, (tx) => tx`update public.messages set status = 'complete', content = 'done' where id = ${unanswered.id}`);
+    await expect(asUser(userB, (tx) => tx`select * from public.regenerate_assistant_message(${conversation}, ${message})`)).rejects.toMatchObject({ code: "PT404" });
+    await asUser(userA, (tx) => tx`select * from public.append_user_message(${conversation}, ${randomUUID()}, 'newer')`);
+    await expect(asUser(userA, (tx) => tx`select * from public.regenerate_assistant_message(${conversation}, ${message})`)).rejects.toMatchObject({ code: "PT409" });
+  });
+
+  it("edits only the latest user message, removes its reply, and keeps the auto title in sync", async () => {
+    const { conversation, message } = await answeredConversation("original prompt");
+    await asUser(userA, (tx) => tx`update public.conversations set title = 'original prompt' where id = ${conversation}`);
+    const [edited] = await asUser(userA, (tx) => tx`select * from public.edit_last_user_message(${conversation}, ${message}, 'edited prompt')`);
+    expect(edited).toEqual({ id: message, position: 1 });
+    const rows = await asUser(userA, (tx) => tx`select role, content, position from public.messages where conversation_id = ${conversation} order by position`);
+    expect(rows).toEqual([{ role: "user", content: "edited prompt", position: 1 }]);
+    const [title] = await asUser(userA, (tx) => tx`select title from public.conversations where id = ${conversation}`);
+    expect(title.title).toBe("edited prompt");
+    const [again] = await asUser(userA, (tx) => tx`select * from public.edit_last_user_message(${conversation}, ${message}, 'edited prompt')`);
+    expect(again).toEqual({ id: message, position: 1 });
+    const [claimed] = await asUser(userA, (tx) => tx`select * from public.claim_assistant_message(${conversation}, ${message})`);
+    expect(claimed).toMatchObject({ position: 2, status: "streaming", replayed: false });
+  });
+
+  it("keeps a renamed title, and rejects edits while streaming, on older messages, blanks, and other owners", async () => {
+    const { conversation, message } = await answeredConversation("keep my title");
+    await asUser(userA, (tx) => tx`update public.conversations set title = 'Renamed by me' where id = ${conversation}`);
+    await asUser(userA, (tx) => tx`select * from public.edit_last_user_message(${conversation}, ${message}, 'different prompt')`);
+    const [title] = await asUser(userA, (tx) => tx`select title from public.conversations where id = ${conversation}`);
+    expect(title.title).toBe("Renamed by me");
+    await expect(asUser(userA, (tx) => tx`select * from public.edit_last_user_message(${conversation}, ${message}, '   ')`)).rejects.toMatchObject({ code: "PT400" });
+    await expect(asUser(userA, (tx) => tx`select * from public.edit_last_user_message(${conversation}, ${message}, ${"x".repeat(20_001)})`)).rejects.toMatchObject({ code: "PT400" });
+    await expect(asUser(userB, (tx) => tx`select * from public.edit_last_user_message(${conversation}, ${message}, 'not mine')`)).rejects.toMatchObject({ code: "PT404" });
+    await asUser(userA, (tx) => tx`select * from public.claim_assistant_message(${conversation}, ${message})`);
+    await expect(asUser(userA, (tx) => tx`select * from public.edit_last_user_message(${conversation}, ${message}, 'during stream')`)).rejects.toMatchObject({ code: "PT409" });
+    const { conversation: other, message: first } = await answeredConversation("older");
+    await asUser(userA, (tx) => tx`select * from public.append_user_message(${other}, ${randomUUID()}, 'newer')`);
+    await expect(asUser(userA, (tx) => tx`select * from public.edit_last_user_message(${other}, ${first}, 'rewrite history')`)).rejects.toMatchObject({ code: "PT409" });
+    const rows = await asUser(userA, (tx) => tx`select content from public.messages where conversation_id = ${other} order by position`);
+    expect(rows.map((row) => row.content)).toEqual(["older", "first answer", "newer"]);
+  });
 });

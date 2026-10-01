@@ -27,20 +27,25 @@ async function respond(request: Request) {
 
   let body: unknown;
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Invalid request." }, { status: 400 }); }
-  const value = body as { conversationId?: unknown; userMessageId?: unknown };
+  const value = body as { conversationId?: unknown; userMessageId?: unknown; regenerate?: unknown };
   const parsedId = validateConversationId(value?.conversationId);
   const parsedMessageId = validateConversationId(value?.userMessageId);
-  if (!parsedId.success || !parsedMessageId.success) return NextResponse.json({ error: "Invalid request." }, { status: 400 });
+  if (!parsedId.success || !parsedMessageId.success || (value.regenerate !== undefined && typeof value.regenerate !== "boolean")) return NextResponse.json({ error: "Invalid request." }, { status: 400 });
+  const regenerate = value.regenerate === true;
 
   const { data: conversation, error: conversationError } = await supabase.from("conversations").select("id,selected_model").eq("id", parsedId.data).maybeSingle();
   if (conversationError) return NextResponse.json({ error: safeError }, { status: 503 });
   const selected = conversation && modelSchema.safeParse(conversation.selected_model);
   if (!conversation || !selected?.success) return NextResponse.json({ error: "Conversation unavailable." }, { status: 404 });
-  const { data: userMessage, error: messageError } = await supabase.from("messages").select("id,position,content").eq("id", parsedMessageId.data).eq("conversation_id", conversation.id).eq("role", "user").eq("status", "complete").maybeSingle();
+  // The user-message lookup and the context read are independent, so they run together; context is trimmed to this message below.
+  const [{ data: userMessage, error: messageError }, { data: recent, error: readError }] = await Promise.all([
+    supabase.from("messages").select("id,position,content").eq("id", parsedMessageId.data).eq("conversation_id", conversation.id).eq("role", "user").eq("status", "complete").maybeSingle(),
+    supabase.from("messages").select("role,content,status,position").eq("conversation_id", conversation.id).eq("status", "complete").order("position", { ascending: false }).limit(34),
+  ]);
   if (messageError) return NextResponse.json({ error: safeError }, { status: 503 });
   if (!userMessage) return NextResponse.json({ error: "Message unavailable." }, { status: 404 });
   if (!validateMessage(userMessage.content).success) return NextResponse.json({ error: "Invalid saved message." }, { status: 400 });
-  const { data: rows, error: readError } = await supabase.from("messages").select("role,content,status,position").eq("conversation_id", conversation.id).eq("status", "complete").lte("position", userMessage.position).order("position", { ascending: false }).limit(32);
+  const rows = recent?.filter((row) => row.position <= userMessage.position).slice(0, 32);
   if (readError || !rows?.length) return NextResponse.json({ error: safeError }, { status: 503 });
   // ponytail: characters approximate tokens; use model-specific tokenization if context limits require it.
   let characters = 0;
@@ -49,7 +54,7 @@ async function respond(request: Request) {
     characters += row.content.length;
     return characters <= 64_000;
   }).reverse().map((row) => ({ role: row.role as "user" | "assistant", content: row.content }));
-  const { data: assistant, error: claimError } = await supabase.rpc("claim_assistant_message", {
+  const { data: assistant, error: claimError } = await supabase.rpc(regenerate ? "regenerate_assistant_message" : "claim_assistant_message", {
     p_conversation_id: conversation.id, p_user_message_id: parsedMessageId.data,
   }).single<{ id: string; position: number; content: string; status: string; replayed: boolean }>();
   if (claimError || !assistant) {

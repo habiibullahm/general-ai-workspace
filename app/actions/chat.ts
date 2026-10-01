@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { modelSchema, validateConversationId, validateMessage, validateTitle } from "@/lib/chat/validation";
 
@@ -29,7 +28,6 @@ export async function createConversationAction(model: unknown): Promise<ChatActi
       selected_model: parsedModel.data,
     }).select("id,title,selected_model,created_at,updated_at").single();
     if (error || !data) return failure();
-    revalidatePath("/");
     return { data };
   } catch {
     return { error: "Your session has expired or the service is unavailable. Please try again." };
@@ -46,7 +44,6 @@ export async function updateConversationModelAction(id: unknown, model: unknown)
     const { data, error } = await supabase.from("conversations").update({ selected_model: parsedModel.data, updated_at: new Date().toISOString() }).eq("id", parsedId.data).select("id").maybeSingle();
     if (error) return failure();
     if (!data) return { error: "That conversation is no longer available." };
-    revalidatePath("/");
     return {};
   } catch {
     return { error: "Your session has expired or the service is unavailable. Please try again." };
@@ -68,8 +65,28 @@ export async function addUserMessageAction(id: unknown, content: unknown, messag
     if (error?.code === "PT409") return { error: "A response is already running or this submission changed. Refresh and try again." };
     if (error?.code === "PT404") return { error: "That conversation is no longer available." };
     if (error || !inserted) return failure();
-    revalidatePath("/");
     return { data: inserted };
+  } catch {
+    return { error: "Your session has expired or the service is unavailable. Please try again." };
+  }
+}
+
+export async function editLastUserMessageAction(id: unknown, messageId: unknown, content: unknown): Promise<ChatActionResult<{ id: string; position: number }>> {
+  const parsedId = validateConversationId(id);
+  const parsedMessageId = validateConversationId(messageId);
+  const parsedContent = validateMessage(content);
+  if (!parsedId.success) return { error: "Choose a valid conversation." };
+  if (!parsedMessageId.success) return { error: "Choose a valid message." };
+  if (!parsedContent.success) return { error: "Messages must be between 1 and 20,000 characters." };
+  try {
+    const { supabase } = await authenticatedClient();
+    const { data, error } = await supabase.rpc("edit_last_user_message", {
+      p_conversation_id: parsedId.data, p_message_id: parsedMessageId.data, p_content: parsedContent.data,
+    }).single<{ id: string; position: number }>();
+    if (error?.code === "PT409") return { error: "Only the latest message can be edited while no response is running. Refresh and try again." };
+    if (error?.code === "PT404") return { error: "That message is no longer available." };
+    if (error || !data) return failure();
+    return { data };
   } catch {
     return { error: "Your session has expired or the service is unavailable. Please try again." };
   }
@@ -85,7 +102,6 @@ export async function renameConversationAction(id: unknown, title: unknown): Pro
     const { data, error } = await supabase.from("conversations").update({ title: parsedTitle.data, updated_at: new Date().toISOString() }).eq("id", parsedId.data).select("id").maybeSingle();
     if (error) return failure();
     if (!data) return { error: "That conversation is no longer available." };
-    revalidatePath("/");
     return {};
   } catch {
     return { error: "Your session has expired or the service is unavailable. Please try again." };
@@ -100,7 +116,6 @@ export async function deleteConversationAction(id: unknown): Promise<ChatActionR
     const { data, error } = await supabase.from("conversations").delete().eq("id", parsedId.data).select("id").maybeSingle();
     if (error) return failure();
     if (!data) return { error: "That conversation is no longer available." };
-    revalidatePath("/");
     return {};
   } catch {
     return { error: "Your session has expired or the service is unavailable. Please try again." };
