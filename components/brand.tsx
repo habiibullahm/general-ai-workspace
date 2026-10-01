@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { brandAssets, getProductName, getWordmark } from "@/lib/config/branding";
+import { getProductName, getWordmark } from "@/lib/config/branding";
+import { logoBodyPath, logoCap, logoFoldPath, logoViewBox } from "@/lib/config/logo-mark";
 
 type Props = {
   variant?: "lockup" | "mark" | "wordmark";
@@ -9,12 +10,17 @@ type Props = {
   label?: string;
 };
 
-// The one place the product identity is drawn. Replace the temporary monogram by setting brandAssets.mark (lib/config/branding.ts).
+// Inline so --logo-body can switch between cream (dark theme) and ink (light theme). An external image cannot see data-theme.
 export function BrandMark() {
-  return brandAssets.mark
-    // eslint-disable-next-line @next/next/no-img-element -- a small static brand asset; no optimisation needed.
-    ? <span className="brand-mark has-asset" aria-hidden="true"><img src={brandAssets.mark} alt="" /></span>
-    : <span className="brand-mark" aria-hidden="true">n</span>;
+  return <span className="brand-mark has-asset" aria-hidden="true"><LogoMark /></span>;
+}
+
+function LogoMark() {
+  return <svg viewBox={logoViewBox}>
+    <path fill="var(--logo-fold)" d={logoFoldPath} />
+    <path fill="var(--logo-body)" d={logoBodyPath} />
+    <rect fill="var(--logo-body)" x={logoCap.x} y={logoCap.y} width={logoCap.width} height={logoCap.height} rx={logoCap.rx} />
+  </svg>;
 }
 
 export function Brand({ variant = "lockup", size = "default", href, label }: Props) {

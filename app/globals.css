@@ -38,6 +38,8 @@
   --avatar-fg: #cdc9be;
   --mark-bg: #9aa583;
   --mark-fg: #14150f;
+  --logo-body: #f4efe6;
+  --logo-fold: #e17a4d;
   --shadow-sm: 0 1px 2px #00000040;
   --shadow-composer: 0 5px 18px #00000047, 0 1px 2px #00000033;
   --shadow-composer-focus: 0 5px 20px #0000004d, 0 0 0 3px #9aa5831f;
@@ -79,6 +81,8 @@
   --avatar-fg: #55554b;
   --mark-bg: #59614b;
   --mark-fg: #fcfbf9;
+  --logo-body: #2a2823;
+  --logo-fold: #e17a4d;
   --shadow-sm: 0 1px 2px #17160d08;
   --shadow-composer: 0 5px 18px #29282108, 0 1px 2px #29282108;
   --shadow-composer-focus: 0 5px 20px #2928210b, 0 0 0 3px #8e92740d;

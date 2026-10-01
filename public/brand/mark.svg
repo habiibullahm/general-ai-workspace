@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="24 8 460 340">
+  <style>
+    .body { fill: #F4EFE6; }
+    .fold { fill: #E17A4D; }
+    @media (prefers-color-scheme: light) { .body { fill: #2A2823; } }
+  </style>
+  <path class="fold" d="M90 175 C170 145 260 165 345 220 C405 262 440 296 404 318 C348 348 260 318 190 268 C130 226 70 196 90 175Z"/>
+  <path class="body" d="M108 332 A60 60 0 0 1 48 272 L48 128 C48 66 82 32 132 30 C196 28 252 62 310 122 C356 170 392 202 366 228 C336 258 296 242 248 206 C206 174 176 182 166 206 C160 224 164 250 168 272 A60 60 0 0 1 108 332Z"/>
+  <rect class="body" x="330" y="104" width="130" height="190" rx="65"/>
+</svg>
