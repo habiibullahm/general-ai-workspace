@@ -134,6 +134,7 @@ button:focus-visible, a:focus-visible, select:focus-visible, textarea:focus-visi
 .theme-switcher button[aria-pressed="true"] { background: var(--active); color: var(--text); }
 .chat-main { position: relative; display: flex; flex: 1; flex-direction: column; min-width: 0; height: 100%; }
 .chat-header { display: flex; align-items: center; justify-content: space-between; flex: 0 0 61px; height: 61px; padding: 0 30px; border-bottom: 1px solid var(--border-soft); }
+.header-start { display: flex; align-items: center; min-width: 0; }
 .header-model { display: flex; align-items: center; gap: 9px; color: var(--text-2); font-size: 13px; font-weight: 550; }
 .model-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent-soft); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-soft) 14%, transparent); }
 .header-divider { color: var(--border-strong); font-weight: 400; }
@@ -185,9 +186,15 @@ button:focus-visible, a:focus-visible, select:focus-visible, textarea:focus-visi
 .send-spinner { width: 14px; height: 14px; border: 2px solid color-mix(in srgb, var(--accent-fg) 40%, transparent); border-top-color: var(--accent-fg); border-radius: 50%; animation: spin .65s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .composer-caption { margin: 9px auto 0; color: var(--text-4); text-align: center; font-size: 9.5px; letter-spacing: .01em; }
+.sidebar-expand { display: none; }
 .mobile-drawer { position: fixed; z-index: 10; inset: 0; display: none; }
 .drawer-scrim { position: absolute; inset: 0; width: 100%; border: 0; background: var(--scrim); }
 .mobile-sidebar { position: absolute; inset: 0 auto 0 0; height: 100%; box-shadow: var(--shadow-drawer); }
+@media (min-width: 761px) {
+  :root[data-sidebar="collapsed"] .desktop-sidebar { display: none; }
+  :root[data-sidebar="collapsed"] .sidebar-expand { display: grid; margin-left: -9px; margin-right: 7px; }
+  :root[data-sidebar="collapsed"] .header-new-chat { display: inline-flex; }
+}
 @media (min-width: 1100px) { .header-new-chat { display: inline-flex; } }
 @media (max-width: 760px) {
   .chat-workspace { min-height: 460px; }
