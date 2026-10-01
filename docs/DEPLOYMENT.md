@@ -87,6 +87,20 @@ The `openai-compatible` adapter sends server-side streaming requests to `${AI_BA
 
 ## Release gate
 
+### M4 authenticated verification
+
+Continue M4 from `feat/m4-ai-streaming`; integrate verified work into `master`. The stale `main` branch is not an implementation or release baseline.
+
+Apply the additive chat-generation migration after testing it on the dedicated loopback database. Runtime RPCs use the authenticated Supabase client and RLS; migration credentials must never be used for normal user-data requests.
+
+Run `npm run test:chat:e2e` with `E2E_USER_EMAIL` and `E2E_USER_PASSWORD` for a dedicated confirmed test account. Store credentials in a gitignored local environment file or the secret store. `E2E_BASE_URL` optionally targets a deployment; otherwise the test uses the local dev server. The command fails if test credentials are missing. The general browser suite skips this credential-dependent case when credentials are absent; that skip does not satisfy M4 acceptance.
+
+The test verifies login, conversation creation, real provider SSE, terminal persistence, refresh/reopen, and sign-in again. Provider configuration must be real, and the six required `AI_*` variables must be available server-side. Sensitive Vercel variables pulled as `[SENSITIVE]` are not usable local configuration.
+
+Keep M4 unmerged until this journey passes. Rate limiting, evaluation, request tracing, and remaining release hardening follow the working core slice and remain required before production release.
+
+### Pilot gate
+
 Target: **READY FOR PILOT** · Current state: **NOT READY**
 
 - [ ] Implementation — All in-scope PRD features implemented

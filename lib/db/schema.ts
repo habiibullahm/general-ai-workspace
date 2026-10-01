@@ -8,6 +8,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
@@ -41,6 +42,7 @@ export const messages = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     conversationId: uuid("conversation_id").notNull(),
+    replyToMessageId: uuid("reply_to_message_id"),
     userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
     role: messageRole("role").notNull(),
     content: text("content").notNull(),
@@ -55,6 +57,14 @@ export const messages = pgTable(
       foreignColumns: [conversations.id, conversations.userId],
     }).onDelete("cascade"),
     unique("messages_conversation_position_key").on(table.conversationId, table.position),
+    unique("messages_id_conversation_owner_key").on(table.id, table.conversationId, table.userId),
+    unique("messages_conversation_reply_key").on(table.conversationId, table.replyToMessageId),
+    foreignKey({
+      name: "messages_reply_owner_fk",
+      columns: [table.replyToMessageId, table.conversationId, table.userId],
+      foreignColumns: [table.id, table.conversationId, table.userId],
+    }),
+    uniqueIndex("messages_one_active_response_idx").on(table.conversationId).where(sql`${table.role} = 'assistant' AND ${table.status} = 'streaming'`),
     index("messages_user_conversation_idx").on(table.userId, table.conversationId),
     check("messages_content_not_blank", sql`${table.content} <> ''`),
   ],

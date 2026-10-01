@@ -25,6 +25,9 @@ export async function getChatWorkspaceData(conversationId: unknown) {
   const active = parsedId.success ? conversations?.find((item) => item.id === parsedId.data) : undefined;
   if (!active) return { conversations: conversations ?? [], messages: [] as PersistedMessage[], activeId: null, error: null };
 
+  const { error: recoveryError } = await supabase.rpc("recover_stale_chat", { p_conversation_id: active.id });
+  if (recoveryError) return { conversations: conversations ?? [], messages: [] as PersistedMessage[], activeId: active.id, error: "This conversation couldn't be loaded. Refresh to try again." };
+
   const { data: messages, error: messagesError } = await supabase
     .from("messages")
     .select("id,role,content,position,status")

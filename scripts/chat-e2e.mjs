@@ -1,0 +1,12 @@
+import env from "@next/env";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+env.loadEnvConfig(process.cwd());
+const missing = ["E2E_USER_EMAIL", "E2E_USER_PASSWORD"].filter((name) => !process.env[name]?.trim());
+if (missing.length) {
+  console.error(`Authenticated chat verification requires: ${missing.join(", ")}`);
+  process.exit(1);
+}
+const result = spawnSync(process.execPath, [fileURLToPath(new URL("../node_modules/@playwright/test/cli.js", import.meta.url)), "test", "tests/e2e/chat.spec.ts", ...process.argv.slice(2)], { stdio: "inherit" });
+process.exit(result.status ?? 1);
