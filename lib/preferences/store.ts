@@ -56,17 +56,28 @@ function toRow(userId: string, patch: PreferencePatch) {
 }
 
 // The signed-in session is the only owner. Callers cannot supply user_id, and the publishable-key client is what RLS checks.
-export async function readOwnerPreferences(): Promise<PreferencesResult> {
+type PreferenceReader = Awaited<ReturnType<typeof createSupabaseServerClient>>;
+
+// Reads the signed-in owner's row. A missing row is the safe default, not an error.
+export async function loadOwnerPreferences(supabase: PreferenceReader): Promise<PreferencesResult> {
   try {
-    const supabase = await createSupabaseServerClient();
-    const user = await getAuthenticatedUser(supabase);
-    if (!user) return { preferences: defaultUserPreferences(), error: sessionError };
     const { data, error } = await supabase.from("user_preferences").select(preferenceColumns).maybeSingle();
     if (error) return { preferences: defaultUserPreferences(), error: loadError };
     if (!data) return { preferences: defaultUserPreferences(), error: null };
     const parsed = preferenceRowSchema.safeParse(data);
     if (!parsed.success) return { preferences: defaultUserPreferences(), error: loadError };
     return { preferences: fromRow(parsed.data), error: null };
+  } catch {
+    return { preferences: defaultUserPreferences(), error: loadError };
+  }
+}
+
+export async function readOwnerPreferences(): Promise<PreferencesResult> {
+  try {
+    const supabase = await createSupabaseServerClient();
+    const user = await getAuthenticatedUser(supabase);
+    if (!user) return { preferences: defaultUserPreferences(), error: sessionError };
+    return loadOwnerPreferences(supabase);
   } catch {
     return { preferences: defaultUserPreferences(), error: loadError };
   }

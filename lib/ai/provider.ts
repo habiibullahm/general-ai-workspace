@@ -4,7 +4,7 @@ import type { ChatModel } from "@/lib/chat/validation";
 import type { ReasoningEffort } from "@/lib/chat/models";
 import { getAiConfig, resolveLogicalModel } from "./registry";
 
-export type ProviderMessage = { role: "user" | "assistant"; content: string };
+export type ProviderMessage = { role: "system" | "user" | "assistant"; content: string };
 // `reasoning` is only ever passed after the route has checked it against the server-side allowlist; "auto" sends nothing.
 export type StreamOptions = { reasoning?: ReasoningEffort };
 export type ChatProvider = { stream(model: ChatModel, messages: ProviderMessage[], signal: AbortSignal, options?: StreamOptions): Promise<ReadableStream<Uint8Array>> };
