@@ -37,11 +37,15 @@ async function respond(request: Request) {
   if (conversationError) return NextResponse.json({ error: safeError }, { status: 503 });
   const selected = conversation && modelSchema.safeParse(conversation.selected_model);
   if (!conversation || !selected?.success) return NextResponse.json({ error: "Conversation unavailable." }, { status: 404 });
-  const { data: userMessage, error: messageError } = await supabase.from("messages").select("id,position,content").eq("id", parsedMessageId.data).eq("conversation_id", conversation.id).eq("role", "user").eq("status", "complete").maybeSingle();
+  // The user-message lookup and the context read are independent, so they run together; context is trimmed to this message below.
+  const [{ data: userMessage, error: messageError }, { data: recent, error: readError }] = await Promise.all([
+    supabase.from("messages").select("id,position,content").eq("id", parsedMessageId.data).eq("conversation_id", conversation.id).eq("role", "user").eq("status", "complete").maybeSingle(),
+    supabase.from("messages").select("role,content,status,position").eq("conversation_id", conversation.id).eq("status", "complete").order("position", { ascending: false }).limit(34),
+  ]);
   if (messageError) return NextResponse.json({ error: safeError }, { status: 503 });
   if (!userMessage) return NextResponse.json({ error: "Message unavailable." }, { status: 404 });
   if (!validateMessage(userMessage.content).success) return NextResponse.json({ error: "Invalid saved message." }, { status: 400 });
-  const { data: rows, error: readError } = await supabase.from("messages").select("role,content,status,position").eq("conversation_id", conversation.id).eq("status", "complete").lte("position", userMessage.position).order("position", { ascending: false }).limit(32);
+  const rows = recent?.filter((row) => row.position <= userMessage.position).slice(0, 32);
   if (readError || !rows?.length) return NextResponse.json({ error: safeError }, { status: 503 });
   // ponytail: characters approximate tokens; use model-specific tokenization if context limits require it.
   let characters = 0;

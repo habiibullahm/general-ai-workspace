@@ -20,13 +20,15 @@ test("authenticated provider response survives refresh, reopen, and sign-in agai
   try {
     await login();
     await page.getByRole("button", { name: "New chat", exact: true }).first().click();
-    await expect(page).toHaveURL(/conversation=/);
-    conversationUrl = page.url();
+    await expect(page.getByRole("heading", { name: "What’s on your mind?" })).toBeVisible();
     const responsePromise = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/chat" && response.request().method() === "POST", { timeout: 130_000 });
     await page.getByRole("textbox", { name: "Message Nibie" }).fill(prompt);
     await page.getByRole("button", { name: "Send message" }).click();
     const response = await responsePromise;
     expect(response.status()).toBe(200);
+    // New chat is lazy: the conversation (and its URL) is created together with the first message.
+    await expect(page).toHaveURL(/conversation=/);
+    conversationUrl = page.url();
     expect(response.headers()["content-type"]).toContain("text/event-stream");
     const stream = await response.text();
     expect(stream).toContain("event: start");
@@ -34,24 +36,24 @@ test("authenticated provider response survives refresh, reopen, and sign-in agai
     expect(stream).toContain('event: status\ndata: {"status":"complete"}');
     expect(stream).not.toContain("event: error");
     await expect(page.getByRole("button", { name: "Stop response" })).toHaveCount(0);
-    const answer = await page.locator(".message-row.assistant p").last().textContent();
+    const answer = await page.locator(".message-row.assistant .markdown").last().textContent();
     expect(answer?.trim()).toBeTruthy();
     expect(answer).not.toBe("…");
 
     await page.reload();
-    await expect(page.locator(".message-row.assistant p").last()).toHaveText(answer!);
-    expect(await page.locator(".message-row.assistant p").last().textContent()).toBe(answer);
+    await expect(page.locator(".message-row.assistant .markdown").last()).toHaveText(answer!);
+    expect(await page.locator(".message-row.assistant .markdown").last().textContent()).toBe(answer);
     title = (await page.locator(".history-item.is-active").textContent())?.trim();
     expect(title).toBeTruthy();
     await page.goto("/");
     await page.getByRole("button", { name: title!, exact: true }).click();
-    await expect(page.locator(".message-row.assistant p").last()).toHaveText(answer!);
+    await expect(page.locator(".message-row.assistant .markdown").last()).toHaveText(answer!);
     await page.getByRole("button", { name: "Sign out", exact: true }).click();
     await expect(page).toHaveURL((url) => url.pathname === "/login");
     await login();
     await page.goto(conversationUrl);
-    await expect(page.locator(".message-row.assistant p").last()).toHaveText(answer!);
-    expect(await page.locator(".message-row.assistant p").last().textContent()).toBe(answer);
+    await expect(page.locator(".message-row.assistant .markdown").last()).toHaveText(answer!);
+    expect(await page.locator(".message-row.assistant .markdown").last().textContent()).toBe(answer);
   } finally {
     if (conversationUrl) {
       await page.goto(conversationUrl);

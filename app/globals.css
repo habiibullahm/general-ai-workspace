@@ -165,3 +165,15 @@ button:focus-visible, a:focus-visible, select:focus-visible, textarea:focus-visi
 .message-editor textarea { width: 100%; min-height: 76px; max-height: 260px; padding: 4px; border: 0; background: transparent; color: #4a4942; font: inherit; font-size: 13.5px; line-height: 1.6; resize: vertical; }
 .message-editor-actions { display: flex; justify-content: flex-end; gap: 6px; }
 @media (max-width: 720px) { .message-editor { width: 100%; } }
+
+/* Speed: loading skeleton and thinking indicator */
+.conversation-skeleton { display: flex; flex-direction: column; gap: 14px; padding-top: 12px; }
+.skeleton-line { height: 14px; width: 100%; border-radius: 7px; background: linear-gradient(90deg, #f0eee8 25%, #f7f5f0 50%, #f0eee8 75%); background-size: 200% 100%; animation: skeleton-shimmer 1.4s ease-in-out infinite; }
+.skeleton-line.is-short { width: 34%; align-self: flex-end; height: 36px; border-radius: 12px; }
+.skeleton-line.is-medium { width: 68%; }
+@keyframes skeleton-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.thinking-dots { display: inline-flex; align-items: center; gap: 5px; height: 24px; }
+.thinking-dots i { width: 6px; height: 6px; border-radius: 50%; background: #aaa69b; animation: thinking-pulse 1.2s ease-in-out infinite; }
+.thinking-dots i:nth-child(2) { animation-delay: .15s; }
+.thinking-dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes thinking-pulse { 0%, 80%, 100% { opacity: .25; transform: scale(.8); } 40% { opacity: 1; transform: scale(1); } }
