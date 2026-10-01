@@ -82,11 +82,11 @@ test.describe("theme", () => {
 });
 
 test.describe("brand", () => {
-  test("shows the lowercase wordmark with a temporary mark and keeps a clean, consistent name", async ({ page }) => {
+  test("shows the lowercase wordmark with the Nibi mark and keeps a clean, consistent name", async ({ page }) => {
     await page.goto("/login");
     const brand = page.getByRole("link", { name: "Nibie", exact: true });
     await expect(brand).toContainText("nibie");
-    await expect(brand.locator(".brand-mark")).toHaveText("n");
+    await expect(brand.locator(".brand-mark .nibi-mark")).toBeVisible();
     await expect(page).toHaveTitle("Nibie");
     await expect(page.locator('link[rel~="icon"]').first()).toHaveAttribute("href", /icon/);
     await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveCount(1);
