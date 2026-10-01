@@ -53,33 +53,23 @@ export async function updateConversationModelAction(id: unknown, model: unknown)
   }
 }
 
-export async function addUserMessageAction(id: unknown, content: unknown): Promise<ChatActionResult> {
+export async function addUserMessageAction(id: unknown, content: unknown, messageId: unknown = crypto.randomUUID()): Promise<ChatActionResult<{ id: string; position: number }>> {
   const parsedId = validateConversationId(id);
   const parsedContent = validateMessage(content);
   if (!parsedId.success) return { error: "Choose a valid conversation." };
   if (!parsedContent.success) return { error: "Messages must be between 1 and 20,000 characters." };
+  const parsedMessageId = validateConversationId(messageId);
+  if (!parsedMessageId.success) return { error: "Choose a valid message." };
   try {
-    const { supabase, user } = await authenticatedClient();
-    const { data: conversation, error: conversationError } = await supabase.from("conversations").select("id,title").eq("id", parsedId.data).maybeSingle();
-    if (conversationError || !conversation) return { error: "That conversation is no longer available." };
-    const { data: last, error: positionError } = await supabase.from("messages").select("position").eq("conversation_id", parsedId.data).order("position", { ascending: false }).limit(1).maybeSingle();
-    if (positionError) return failure();
-    const position = (last?.position ?? 0) + 1;
-    const { error: insertError } = await supabase.from("messages").insert({
-      conversation_id: parsedId.data,
-      user_id: user.id,
-      role: "user",
-      content: parsedContent.data,
-      status: "complete",
-      position,
-    });
-    if (insertError) return failure();
-    const updates: { updated_at: string; title?: string } = { updated_at: new Date().toISOString() };
-    if (conversation.title === "New chat") updates.title = parsedContent.data.slice(0, 42).trimEnd() + (parsedContent.data.length > 42 ? "…" : "");
-    const { error: updateError } = await supabase.from("conversations").update(updates).eq("id", parsedId.data);
-    if (updateError) return failure();
+    const { supabase } = await authenticatedClient();
+    const { data: inserted, error } = await supabase.rpc("append_user_message", {
+      p_conversation_id: parsedId.data, p_message_id: parsedMessageId.data, p_content: parsedContent.data,
+    }).single<{ id: string; position: number }>();
+    if (error?.code === "PT409") return { error: "A response is already running or this submission changed. Refresh and try again." };
+    if (error?.code === "PT404") return { error: "That conversation is no longer available." };
+    if (error || !inserted) return failure();
     revalidatePath("/");
-    return {};
+    return { data: inserted };
   } catch {
     return { error: "Your session has expired or the service is unavailable. Please try again." };
   }

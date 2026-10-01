@@ -22,4 +22,13 @@ describe("chat server action input boundaries", () => {
     await expect(deleteConversationAction("not-a-uuid")).resolves.toMatchObject({ error: expect.any(String) });
     expect(createClient).not.toHaveBeenCalled();
   });
+
+  it("passes a stable submission id to the transactional append RPC", async () => {
+    const conversation = "5e9bdcca-9205-4fea-a773-13952bb78c44";
+    const message = "b79e56e1-b479-46f4-97d3-30b2e22be90e";
+    const rpc = vi.fn(() => ({ single: async () => ({ data: { id: message, position: 1 }, error: null }) }));
+    createClient.mockResolvedValue({ auth: { getUser: async () => ({ data: { user: { id: "owner" } }, error: null }) }, rpc });
+    expect(await addUserMessageAction(conversation, " hello ", message)).toEqual({ data: { id: message, position: 1 } });
+    expect(rpc).toHaveBeenCalledWith("append_user_message", { p_conversation_id: conversation, p_message_id: message, p_content: "hello" });
+  });
 });

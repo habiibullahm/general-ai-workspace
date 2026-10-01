@@ -12,3 +12,6 @@ coverage/
 /playwright-report/
 /AGENTS.md
 /CLAUDE.md
+.local-test/
+.vercel
+.env*
