@@ -7,12 +7,15 @@ import { addUserMessageAction, deleteConversationAction, editLastUserMessageActi
 import { BrandMark } from "@/components/brand";
 import { ChatComposer, type ComposerHandle } from "@/components/chat-composer";
 import { ChatSidebar } from "@/components/chat-sidebar";
+import { SettingsDialog } from "@/components/settings/settings-dialog";
 import { MessageRow } from "@/components/message-row";
 import { useReasoningPreference } from "@/components/use-reasoning-preference";
 import { useStableCallback } from "@/components/use-stable-callback";
 import type { ConversationSummary, PersistedMessage } from "@/lib/chat/read";
 import type { ChatModel } from "@/lib/chat/validation";
-import { resolveMode, type ModelOption } from "@/lib/chat/models";
+import type { ModelOption } from "@/lib/chat/models";
+import { modelForComposer } from "@/lib/preferences/model";
+import { defaultUserPreferences, type UserPreferences } from "@/lib/preferences/types";
 import { isNearBottom } from "@/lib/chat/scroll";
 import { readChatSse } from "@/lib/ai/sse";
 import { classifyStreamFailure, isRecoverySettled, latestReplyFailed, needsServerCheck, recoveryMaxPolls, recoveryPollMs } from "@/lib/chat/recovery";
@@ -36,7 +39,7 @@ const mockConversations: Conversation[] = [
 const noModels: ModelOption[] = [];
 const noReasoningModes: ChatModel[] = [];
 
-export function ChatWorkspace({ email, initialData, preview = false, models = noModels, reasoningModes = noReasoningModes, renderedAt }: { email: string; initialData?: WorkspaceData; preview?: boolean; models?: ModelOption[]; reasoningModes?: ChatModel[]; renderedAt?: number }) {
+export function ChatWorkspace({ email, initialData, preview = false, models = noModels, reasoningModes = noReasoningModes, renderedAt, preferences, preferencesError = null }: { email: string; initialData?: WorkspaceData; preview?: boolean; models?: ModelOption[]; reasoningModes?: ChatModel[]; renderedAt?: number; preferences?: UserPreferences; preferencesError?: string | null }) {
   const router = useRouter();
   const conversationParam = useSearchParams().get("conversation");
   const conversations = preview ? mockConversations : (initialData?.conversations ?? noConversations);
@@ -50,8 +53,21 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
   const [pendingId, setPendingId] = useState<string | null | undefined>(undefined);
   // A conversation's saved mode is only used while that mode is still configured; otherwise the first available one is shown.
   const availableModes = useMemo(() => models.map((option) => option.id), [models]);
-  const modeFor = (saved: string | undefined) => resolveMode(saved, availableModes) ?? "Balanced";
-  const [mode, setMode] = useState<ChatModel>(() => modeFor(conversations.find((item) => item.id === initialData?.activeId)?.selected_model));
+  const [savedPreferences, setSavedPreferences] = useState(preferences ?? defaultUserPreferences());
+  const [serverUpdatedAt, setServerUpdatedAt] = useState(preferences?.updatedAt ?? null);
+  if (preferences && preferences.updatedAt !== serverUpdatedAt) {
+    setServerUpdatedAt(preferences.updatedAt);
+    setSavedPreferences(preferences);
+  }
+  const pinnedNewChatMode = useRef(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const modeFor = (saved: string | undefined, hasConversation: boolean) => modelForComposer({
+    hasConversation,
+    conversationModel: saved,
+    accountDefault: savedPreferences.defaultModel,
+    available: availableModes,
+  }) ?? "Balanced";
+  const [mode, setMode] = useState<ChatModel>(() => modeFor(conversations.find((item) => item.id === initialData?.activeId)?.selected_model, Boolean(initialData?.activeId)));
   const [reasoning, setReasoning] = useReasoningPreference();
   // Reasoning effort is only sent for modes the server has verified; everywhere else it is Auto (nothing is sent).
   const requestReasoning = reasoningModes.includes(mode) ? reasoning : "auto";
@@ -112,7 +128,7 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
     if (settled && removedIds.every((id) => !initialData?.messages.some((saved) => saved.id === id))) {
       setServerData(initialData);
       // A new chat has no saved mode. Adopting the empty server payload must not wipe the choice the user just made.
-      if (initialData?.activeId) setMode(modeFor(initialData.conversations.find((item) => item.id === initialData.activeId)?.selected_model));
+      if (initialData?.activeId) setMode(modeFor(initialData.conversations.find((item) => item.id === initialData.activeId)?.selected_model, true));
       setLocalMessages({});
       setRemovedIds([]);
       setLocalConversations([]);
@@ -148,12 +164,24 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
     return () => window.removeEventListener("keydown", handleKeydown);
   }, [drawerOpen]);
 
+  // An empty chat follows the account default. A model picked on that empty chat stays until New chat is opened again.
+  useEffect(() => {
+    if (activeId || pinnedNewChatMode.current) return;
+    setMode(modelForComposer({ hasConversation: false, accountDefault: savedPreferences.defaultModel, available: availableModes }) ?? "Balanced");
+  }, [activeId, availableModes, savedPreferences.defaultModel]);
+
   const openConversation = useStableCallback((id: string | null) => {
     if (busy.current && !streamController.current) return;
     streamController.current?.abort();
     setNotice(""); setDrawerOpen(false); setEditingId(null); setRecovery(null); followRef.current = true;
     const item = shownConversations.find((conversation) => conversation.id === id);
-    if (item) setMode(modeFor(item.selected_model));
+    if (item) {
+      pinnedNewChatMode.current = false;
+      setMode(modeFor(item.selected_model, true));
+    } else if (!id) {
+      pinnedNewChatMode.current = false;
+      setMode(modeFor(undefined, false));
+    }
     if (preview) setPreviewActiveId(id);
     else { setPendingId(id); router.push(id ? `/?conversation=${encodeURIComponent(id)}` : "/"); }
     requestAnimationFrame(() => menuButtonRef.current?.focus());
@@ -299,6 +327,7 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
   const changeMode = useStableCallback((next: ChatModel) => {
     if (next === mode) return;
     const previous = mode;
+    if (!activeId) pinnedNewChatMode.current = true;
     setMode(next);
     if (!activeId || preview) return;
     const revert = (message: string) => { setMode((current) => current === next ? previous : current); setNotice(message); };
@@ -327,6 +356,8 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
     router.refresh();
   });
   const closeDrawer = useStableCallback(() => { setDrawerOpen(false); menuButtonRef.current?.focus(); });
+  const openSettings = useStableCallback(() => { setDrawerOpen(false); setSettingsOpen(true); });
+  const closeSettings = useStableCallback(() => setSettingsOpen(false));
   const stopStream = useStableCallback(() => streamController.current?.abort());
   const attach = useStableCallback(() => setNotice("Attachments are not available yet."));
   const cancelEdit = useStableCallback(() => setEditingId(null));
@@ -334,11 +365,13 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
 
   const history = activeId ? activeId : null;
   const caption = preview ? "Mock workspace · Messages stay in this tab and are not saved." : streaming ? "Nibie is responding · You can stop at any time." : "Your conversations are saved to your account.";
-  const sidebarProps = { conversations: shownConversations, activeId: history, busy: controlsDisabled, preview, email, renderedAt, onClose: closeDrawer, onOpen: openConversation, onNewChat: newChat, onRename: rename, onDelete: remove };
+  const sidebarProps = { conversations: shownConversations, activeId: history, busy: controlsDisabled, preview, email, renderedAt, onClose: closeDrawer, onOpen: openConversation, onNewChat: newChat, onOpenSettings: openSettings, onRename: rename, onDelete: remove };
 
   return <main className="chat-workspace"><ChatSidebar {...sidebarProps} />{drawerOpen && <div className="mobile-drawer"><button className="drawer-scrim" aria-label="Dismiss menu backdrop" onClick={closeDrawer} /><ChatSidebar {...sidebarProps} mobile drawerRef={drawerRef} closeMenuRef={closeMenuRef} /></div>}
     <section className="chat-main" aria-label="Chat workspace"><header className="chat-header"><button ref={menuButtonRef} className="icon-button mobile-menu-button" aria-label="Open conversation menu" onClick={() => setDrawerOpen(true)}><Menu size={21} /></button><div className="header-model"><span className="model-dot" /><span>Nibie</span><span className="header-divider">/</span><span className="header-context">A little room to think</span></div><button className="header-new-chat" disabled={controlsDisabled} onClick={newChat}><Plus size={16} /><span>New chat</span></button></header>
       <div ref={scrollRef} onScroll={handleScroll} className={`conversation-scroll ${messages.length || loadingConversation ? "has-messages" : "is-empty"}`}>{loadingConversation ? <div className="message-list conversation-skeleton" role="status" aria-busy="true" aria-label="Loading conversation"><div className="skeleton-line is-short" /><div className="skeleton-line" /><div className="skeleton-line" /><div className="skeleton-line is-medium" /></div> : messages.length ? <div className="message-list" aria-live="polite">{messages.map((message) => <MessageRow key={message.id} message={message} initial={initial} isLast={message.id === lastMessage?.id} isLastUser={message.id === lastUser?.id} canMutate={!preview} disabled={messageActionsLocked} editing={editingId === message.id} onRegenerate={regenerate} onStartEdit={startEdit} onCancelEdit={cancelEdit} onSaveEdit={saveEdit} />)}{notice && <p className="local-notice" role="status">{notice}</p>}</div> : <div className="welcome-panel">{notice && <p className="local-notice" role="status">{notice}</p>}<div className="welcome-icon"><BrandMark /></div><p className="welcome-eyebrow">A LITTLE ROOM TO THINK</p><h1>What’s on your mind?</h1><p className="welcome-copy">A fresh page for ideas, questions, and whatever you’re working through.</p><div className="suggestion-list" aria-label="Suggestions">{suggestions.map((suggestion) => <button key={suggestion} onClick={() => { composerRef.current?.set(suggestion); composerRef.current?.focus(); }}>{suggestion}<span>↗</span></button>)}</div></div>}</div>
       <ChatComposer ref={composerRef} sending={sending || recovering} streaming={streaming} models={models} mode={mode} reasoningModes={reasoningModes} reasoning={reasoning} caption={caption} onSubmit={submitMessage} onStop={stopStream} onModeChange={changeMode} onReasoningChange={setReasoning} onAttach={attach} />
-    </section></main>;
+    </section>
+    {settingsOpen ? <SettingsDialog preview={preview} models={models} initialPreferences={savedPreferences} initialError={preferencesError} onClose={closeSettings} onSaved={setSavedPreferences} /> : null}
+  </main>;
 }

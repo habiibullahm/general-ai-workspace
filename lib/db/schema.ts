@@ -15,6 +15,10 @@ import { sql } from "drizzle-orm";
 
 export const messageRole = pgEnum("message_role", ["user", "assistant"]);
 export const messageStatus = pgEnum("message_status", ["complete", "streaming", "interrupted", "error"]);
+export const preferredLanguage = pgEnum("preferred_language", ["auto", "en", "id"]);
+export const preferenceModel = pgEnum("preference_model", ["fast", "balanced", "reasoning"]);
+export const responseLength = pgEnum("response_length", ["concise", "balanced", "detailed"]);
+export const responseStyle = pgEnum("response_style", ["natural", "professional", "direct"]);
 
 export const users = pgTable("users", {
   id: uuid("id").primaryKey(),
@@ -67,5 +71,31 @@ export const messages = pgTable(
     uniqueIndex("messages_one_active_response_idx").on(table.conversationId).where(sql`${table.role} = 'assistant' AND ${table.status} = 'streaming'`),
     index("messages_user_conversation_idx").on(table.userId, table.conversationId),
     check("messages_content_not_blank", sql`${table.content} <> ''`),
+  ],
+);
+
+// Account-level defaults. One row per owner. Conversation rows keep their own selected_model.
+export const userPreferences = pgTable(
+  "user_preferences",
+  {
+    userId: uuid("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+    preferredName: text("preferred_name"),
+    preferredLanguage: preferredLanguage("preferred_language").notNull().default("auto"),
+    defaultModel: preferenceModel("default_model").notNull().default("balanced"),
+    responseLength: responseLength("response_length").notNull().default("balanced"),
+    responseStyle: responseStyle("response_style").notNull().default("natural"),
+    aboutYou: text("about_you"),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    check(
+      "user_preferences_preferred_name_length",
+      sql`${table.preferredName} is null or (char_length(${table.preferredName}) between 1 and 80 and ${table.preferredName} = btrim(${table.preferredName}))`,
+    ),
+    check(
+      "user_preferences_about_you_length",
+      sql`${table.aboutYou} is null or (char_length(${table.aboutYou}) between 1 and 1500 and ${table.aboutYou} = btrim(${table.aboutYou}))`,
+    ),
   ],
 );
