@@ -15,7 +15,7 @@ describe("POST /api/chat", () => {
   afterEach(() => vi.useRealTimers());
 
   it("returns 401 before reading request data or invoking a provider", async () => {
-    createClient.mockResolvedValue({ auth: { getUser: async () => ({ data: { user: null }, error: new Error("no session") }) } });
+    createClient.mockResolvedValue({ auth: { getClaims: async () => ({ data: null, error: new Error("no session") }) } });
     const response = await POST(new Request("http://localhost/api/chat", { method: "POST", body: "{}" }));
     expect(response.status).toBe(401);
     expect(stream).not.toHaveBeenCalled();
@@ -23,7 +23,7 @@ describe("POST /api/chat", () => {
 
   it("rejects malformed conversation requests before querying user data", async () => {
     const from = vi.fn();
-    createClient.mockResolvedValue({ auth: { getUser: async () => ({ data: { user: { id: "owner" } }, error: null }) }, from });
+    createClient.mockResolvedValue({ auth: { getClaims: async () => ({ data: { claims: { sub: "owner" } }, error: null }) }, from });
     const response = await POST(new Request("http://localhost/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ conversationId: "other-user-id", userMessageId: "bad" }) }));
     expect(response.status).toBe(400);
     expect(from).not.toHaveBeenCalled();
@@ -32,16 +32,41 @@ describe("POST /api/chat", () => {
 
   it("keeps RLS-hidden conversations indistinguishable and never calls the model", async () => {
     const from = vi.fn(() => query({ data: null, error: null }));
-    createClient.mockResolvedValue({ auth: { getUser: async () => ({ data: { user: { id: "owner" } }, error: null }) }, from });
+    createClient.mockResolvedValue({ auth: { getClaims: async () => ({ data: { claims: { sub: "owner" } }, error: null }) }, from });
     const response = await POST(validRequest());
     expect(response.status).toBe(404);
     expect(stream).not.toHaveBeenCalled();
-    expect(from).toHaveBeenCalledTimes(1);
+    // The conversation and message reads run together (all RLS-scoped); a hidden conversation must still never reach a claim or a write.
+    expect(claim).not.toHaveBeenCalled();
+    expect((from.mock.calls as unknown as [string][]).map(([table]) => table).sort()).toEqual(["conversations", "messages", "messages"]);
+  });
+
+  it("reads the conversation, the user message and the context in one parallel step, with no Auth round trip", async () => {
+    const getClaims = vi.fn(async () => ({ data: { claims: { sub: "owner" } }, error: null }));
+    const getUser = vi.fn();
+    const gate: { release?: () => void } = {};
+    const gated = new Promise<void>((resolve) => { gate.release = resolve; });
+    const started: string[] = [];
+    const from = vi.fn((table: string) => {
+      started.push(table);
+      const builder = query({ data: table === "conversations" ? { id: "conversation", selected_model: "Balanced" } : null, error: null });
+      builder.then = (resolve: (value: unknown) => unknown) => gated.then(() => ({ data: table === "conversations" ? { id: "conversation", selected_model: "Balanced" } : null, error: null })).then(resolve);
+      builder.maybeSingle = () => gated.then(() => ({ data: table === "conversations" ? { id: "conversation", selected_model: "Balanced" } : null, error: null }));
+      return builder;
+    });
+    createClient.mockResolvedValue({ auth: { getClaims, getUser }, from, rpc: claim });
+    const pending = POST(validRequest());
+    // All three reads have been issued before any of them has finished: they are not chained one after another.
+    await vi.waitFor(() => expect(started).toHaveLength(3));
+    gate.release?.();
+    expect((await pending).status).toBe(404);
+    expect(getClaims).toHaveBeenCalledOnce();
+    expect(getUser).not.toHaveBeenCalled();
   });
 
   it("rejects cross-origin and non-JSON requests before querying user data", async () => {
     const from = vi.fn();
-    createClient.mockResolvedValue({ auth: { getUser: async () => ({ data: { user: { id: "owner" } }, error: null }) }, from });
+    createClient.mockResolvedValue({ auth: { getClaims: async () => ({ data: { claims: { sub: "owner" } }, error: null }) }, from });
     const crossOrigin = validRequest();
     crossOrigin.headers.set("origin", "https://attacker.invalid");
     expect((await POST(crossOrigin)).status).toBe(403);
@@ -55,7 +80,7 @@ describe("POST /api/chat", () => {
 
   it("revalidates stored prompt bounds before starting a provider request", async () => {
     const from = vi.fn((table: string) => query({ data: table === "conversations" ? { id: "conversation", selected_model: "Balanced" } : { id: "user-message", position: 1, content: "x".repeat(20_001) }, error: null }));
-    createClient.mockResolvedValue({ auth: { getUser: async () => ({ data: { user: { id: "owner" } }, error: null }) }, from });
+    createClient.mockResolvedValue({ auth: { getClaims: async () => ({ data: { claims: { sub: "owner" } }, error: null }) }, from });
     expect((await POST(validRequest())).status).toBe(400);
     expect(claim).not.toHaveBeenCalled();
     expect(stream).not.toHaveBeenCalled();
@@ -74,7 +99,7 @@ describe("POST /api/chat", () => {
       if (table === "messages") return query(outcomes.shift()!, (write) => writes.push(write));
       return query({ data: null, error: null });
     });
-    createClient.mockResolvedValue({ auth: { getUser: async () => ({ data: { user: { id: "owner" } }, error: null }) }, from, rpc: claim });
+    createClient.mockResolvedValue({ auth: { getClaims: async () => ({ data: { claims: { sub: "owner" } }, error: null }) }, from, rpc: claim });
     stream.mockResolvedValue(sseBody("Hello"));
     const response = await POST(validRequest());
     const body = await response.text();
@@ -99,7 +124,7 @@ describe("POST /api/chat", () => {
     const from = vi.fn((table: string) => table === "conversations"
       ? query({ data: { id: "conversation", selected_model: "Balanced" }, error: null })
       : query(results.shift()!, (write) => writes.push(write)));
-    createClient.mockResolvedValue({ auth: { getUser: async () => ({ data: { user: { id: "owner" } }, error: null }) }, from, rpc: claim });
+    createClient.mockResolvedValue({ auth: { getClaims: async () => ({ data: { claims: { sub: "owner" } }, error: null }) }, from, rpc: claim });
     stream.mockResolvedValue(sseBody("Hello"));
     const response = await POST(validRequest());
     const body = await response.text();
@@ -118,7 +143,7 @@ describe("POST /api/chat", () => {
     const from = vi.fn((table: string) => table === "conversations"
       ? query({ data: { id: "conversation", selected_model: "Fast" }, error: null })
       : query(results.shift()!, (write) => writes.push(write)));
-    createClient.mockResolvedValue({ auth: { getUser: async () => ({ data: { user: { id: "owner" } }, error: null }) }, from, rpc: claim });
+    createClient.mockResolvedValue({ auth: { getClaims: async () => ({ data: { claims: { sub: "owner" } }, error: null }) }, from, rpc: claim });
     stream.mockRejectedValue(new Error("provider body or credential must not be returned"));
     const response = await POST(validRequest());
     const body = await response.text();
@@ -136,7 +161,7 @@ describe("POST /api/chat", () => {
     const from = vi.fn((table: string) => table === "conversations"
       ? query({ data: { id: "conversation", selected_model: "Fast" }, error: null })
       : query(results.shift()!));
-    createClient.mockResolvedValue({ auth: { getUser: async () => ({ data: { user: { id: "owner" } }, error: null }) }, from, rpc: claim });
+    createClient.mockResolvedValue({ auth: { getClaims: async () => ({ data: { claims: { sub: "owner" } }, error: null }) }, from, rpc: claim });
     stream.mockRejectedValue(new Error("Unsupported AI_PROVIDER; expected openai-compatible."));
     const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
     try {
@@ -170,7 +195,7 @@ describe("POST /api/chat", () => {
     const from = vi.fn((table: string) => table === "conversations"
       ? query({ data: { id: "conversation", selected_model: "Fast" }, error: null })
       : query(results.shift()!, (write) => writes.push(write)));
-    createClient.mockResolvedValue({ auth: { getUser: async () => ({ data: { user: { id: "owner" } }, error: null }) }, from, rpc: claim });
+    createClient.mockResolvedValue({ auth: { getClaims: async () => ({ data: { claims: { sub: "owner" } }, error: null }) }, from, rpc: claim });
     stream.mockImplementation((_model: string, _messages: unknown[], signal: AbortSignal) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true })));
     const aborter = new AbortController();
     const pending = POST(validRequest(aborter.signal));
@@ -337,7 +362,7 @@ function readyClient(writes: unknown[], updates: unknown[] = [{ data: { id: assi
   const from = vi.fn((table: string) => table === "conversations"
     ? query({ data: { id: "conversation", selected_model: "Balanced" }, error: null })
     : query(results.shift(), (write) => writes.push(write)));
-  createClient.mockResolvedValue({ auth: { getUser: async () => ({ data: { user: { id: "owner" } }, error: null }) }, from, rpc: claim });
+  createClient.mockResolvedValue({ auth: { getClaims: async () => ({ data: { claims: { sub: "owner" } }, error: null }) }, from, rpc: claim });
   return from;
 }
 

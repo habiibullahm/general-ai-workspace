@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getAuthenticatedUser } from "@/lib/auth/get-user";
 import { modelSchema, validateConversationId, validateMessage } from "@/lib/chat/validation";
 import { defaultReasoningEffort, reasoningAllowed, reasoningEffortSchema, resolveMode } from "@/lib/chat/models";
 import { chatProvider } from "@/lib/ai/provider";
@@ -21,8 +22,8 @@ export async function POST(request: Request) {
 
 async function respond(request: Request) {
   const supabase = await createSupabaseServerClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+  // The session comes from the verified access token (no Auth round trip); row-level security still scopes every query below to its owner.
+  if (!await getAuthenticatedUser(supabase)) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   const origin = request.headers.get("origin");
   if (origin && origin !== new URL(request.url).origin) return NextResponse.json({ error: "Invalid request origin." }, { status: 403 });
   if (request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "application/json") return NextResponse.json({ error: "A JSON request is required." }, { status: 415 });
@@ -42,18 +43,19 @@ async function respond(request: Request) {
   const availableModes = availableModels.map((option) => option.id);
   if (requestedModel && !availableModes.includes(requestedModel.data)) return NextResponse.json({ error: "That model isn't available." }, { status: 400 });
 
-  const { data: conversation, error: conversationError } = await supabase.from("conversations").select("id,selected_model").eq("id", parsedId.data).maybeSingle();
+  // The conversation, the user message and the recent context only depend on the ids in the request, so they are read together
+  // (RLS hides other owners' rows from all three); the message context is trimmed to this message below.
+  const [{ data: conversation, error: conversationError }, { data: userMessage, error: messageError }, { data: recent, error: readError }] = await Promise.all([
+    supabase.from("conversations").select("id,selected_model").eq("id", parsedId.data).maybeSingle(),
+    supabase.from("messages").select("id,position,content").eq("id", parsedMessageId.data).eq("conversation_id", parsedId.data).eq("role", "user").eq("status", "complete").maybeSingle(),
+    supabase.from("messages").select("role,content,status,position").eq("conversation_id", parsedId.data).eq("status", "complete").order("position", { ascending: false }).limit(34),
+  ]);
   if (conversationError) return NextResponse.json({ error: safeError }, { status: 503 });
   if (!conversation) return NextResponse.json({ error: "Conversation unavailable." }, { status: 404 });
   const mode = requestedModel?.data ?? resolveMode(conversation.selected_model, availableModes);
   if (!mode) return NextResponse.json({ error: safeError }, { status: 503 });
   const reasoning = requestedReasoning?.data ?? defaultReasoningEffort;
   if (!reasoningAllowed(reasoning, mode, reasoningModes)) return NextResponse.json({ error: "Reasoning isn't available for this model." }, { status: 400 });
-  // The user-message lookup and the context read are independent, so they run together; context is trimmed to this message below.
-  const [{ data: userMessage, error: messageError }, { data: recent, error: readError }] = await Promise.all([
-    supabase.from("messages").select("id,position,content").eq("id", parsedMessageId.data).eq("conversation_id", conversation.id).eq("role", "user").eq("status", "complete").maybeSingle(),
-    supabase.from("messages").select("role,content,status,position").eq("conversation_id", conversation.id).eq("status", "complete").order("position", { ascending: false }).limit(34),
-  ]);
   if (messageError) return NextResponse.json({ error: safeError }, { status: 503 });
   if (!userMessage) return NextResponse.json({ error: "Message unavailable." }, { status: 404 });
   if (!validateMessage(userMessage.content).success) return NextResponse.json({ error: "Invalid saved message." }, { status: 400 });

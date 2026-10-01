@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Menu, Plus } from "lucide-react";
-import { addUserMessageAction, createConversationAction, deleteConversationAction, editLastUserMessageAction, renameConversationAction, updateConversationModelAction } from "@/app/actions/chat";
+import { addUserMessageAction, deleteConversationAction, editLastUserMessageAction, renameConversationAction, startConversationAction, updateConversationModelAction } from "@/app/actions/chat";
 import { BrandMark } from "@/components/brand";
 import { ChatComposer, type ComposerHandle } from "@/components/chat-composer";
 import { ChatSidebar } from "@/components/chat-sidebar";
@@ -233,20 +233,24 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
       setLocalMessages((items) => ({ ...items, [key]: [...withoutPending(items[key]), { id: messageId, role: "user", content, position: basePosition + 1, status: "complete" }, { id: placeholderId, role: "assistant", content: "", position: basePosition + 2, status: "streaming" }] }));
       composerRef.current?.clear();
       const rollback = (message: string, from: string) => { setLocalMessages((items) => ({ ...items, [from]: withoutPending(items[from]) })); composerRef.current?.restore(content); setNotice(message); };
+      let saved: { id: string; position: number };
       if (!id) {
-        const created = await createConversationAction(mode);
-        if (created.error || !created.data) { rollback(created.error ?? "Conversation couldn't be created.", key); return; }
-        id = created.data.id;
-        submission.current = { id: messageId, content, conversationId: id };
-        setLocalConversations((items) => [created.data!, ...items]);
-        setLocalMessages((items) => { const { "": rows = [], ...rest } = items; return { ...rest, [id!]: rows }; });
-        setPendingId(id);
-        router.push(`/?conversation=${encodeURIComponent(id)}`);
+        // The first message of a new chat creates the conversation and saves the message in a single round trip.
+        const started = await startConversationAction(mode, messageId, content);
+        if (started.error || !started.data) { rollback(started.error ?? "Conversation couldn't be created.", key); return; }
+        const { conversation } = started.data;
+        saved = started.data.message;
+        id = conversation.id;
+        setLocalConversations((items) => [conversation, ...items]);
+        setLocalMessages((items) => { const { "": rows = [], ...rest } = items; return { ...rest, [conversation.id]: rows }; });
+        setPendingId(conversation.id);
+        router.push(`/?conversation=${encodeURIComponent(conversation.id)}`);
+      } else {
+        const result = await addUserMessageAction(id, content, messageId);
+        if (result.error || !result.data) { rollback(result.error ?? "Message couldn't be saved.", id); return; }
+        saved = result.data;
       }
-      const result = await addUserMessageAction(id, content, messageId);
-      if (result.error || !result.data) { rollback(result.error ?? "Message couldn't be saved.", id); return; }
       submission.current = null;
-      const saved = result.data;
       setLocalMessages((items) => ({ ...items, [id!]: (items[id!] ?? []).map((row) => row.id === messageId ? { ...row, position: saved.position } : row.id === placeholderId ? { ...row, position: saved.position + 1 } : row) }));
       setLocalConversations((items) => items.map((item) => item.id === id ? { ...item, title: item.title === "New chat" ? content.slice(0, 42) + (content.length > 42 ? "…" : "") : item.title, updated_at: new Date().toISOString() } : item));
       await generate(id, messageId, { placeholderId });
