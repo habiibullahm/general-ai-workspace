@@ -46,7 +46,7 @@ test("authenticated provider response survives refresh, reopen, and sign-in agai
     title = (await page.locator(".history-item.is-active").textContent())?.trim();
     expect(title).toBeTruthy();
     await page.goto("/");
-    await page.getByRole("button", { name: title!, exact: true }).click();
+    await page.locator(".desktop-sidebar").getByRole("button", { name: title!, exact: true }).first().click();
     await expect(page.locator(".message-row.assistant .markdown").last()).toHaveText(answer!);
     await page.getByRole("button", { name: "Sign out everywhere", exact: true }).click();
     await expect(page).toHaveURL((url) => url.pathname === "/login");
@@ -57,10 +57,10 @@ test("authenticated provider response survives refresh, reopen, and sign-in agai
   } finally {
     if (conversationUrl) {
       await page.goto(conversationUrl);
-      const remove = title ? page.getByRole("button", { name: `Delete ${title}`, exact: true }) : page.locator(".history-entry").filter({ has: page.locator(".history-item.is-active") }).getByRole("button", { name: /^Delete / });
+      const remove = page.locator(".history-entry").filter({ has: page.locator(".history-item.is-active") }).getByRole("button", { name: /^Delete / });
       if (await remove.count()) {
         page.once("dialog", (dialog) => dialog.accept());
-        await remove.click();
+        await remove.first().click();
       }
     }
   }
