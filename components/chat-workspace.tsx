@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Menu, Plus, Sparkles } from "lucide-react";
 import { addUserMessageAction, createConversationAction, deleteConversationAction, editLastUserMessageAction, renameConversationAction, updateConversationModelAction } from "@/app/actions/chat";
@@ -11,10 +11,14 @@ import { useStableCallback } from "@/components/use-stable-callback";
 import type { ConversationSummary, PersistedMessage } from "@/lib/chat/read";
 import type { ChatModel } from "@/lib/chat/validation";
 import { readChatSse } from "@/lib/ai/sse";
+import { classifyStreamFailure, isRecoverySettled, latestReplyFailed, needsServerCheck, recoveryMaxPolls, recoveryPollMs } from "@/lib/chat/recovery";
 
 type Conversation = ConversationSummary & { messages: PersistedMessage[] };
 type WorkspaceData = { conversations: ConversationSummary[]; messages: PersistedMessage[]; activeId: string | null; error: string | null };
 type GenerateOptions = { regenerate?: boolean; replaceIds?: string[]; placeholderId?: string };
+// While a response's outcome is unknown, the server is polled until it reports a settled state (see lib/chat/recovery.ts).
+type Recovery = { conversationId: string; assistantId: string | null; baseline: WorkspaceData | undefined };
+const failureNotice = "Nibie couldn't complete that response. Please try again.";
 const suggestions = ["Help me think through an idea", "Write something with me", "Explain a new topic"];
 const noConversations: ConversationSummary[] = [];
 // Streamed text is applied in small batches so a long reply is not re-parsed as Markdown for every network chunk.
@@ -32,6 +36,7 @@ export function ChatWorkspace({ email, initialData, preview = false }: { email: 
   const [localMessages, setLocalMessages] = useState<Record<string, PersistedMessage[]>>({});
   const [removedIds, setRemovedIds] = useState<string[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [recovery, setRecovery] = useState<Recovery | null>(null);
   const [localConversations, setLocalConversations] = useState<ConversationSummary[]>([]);
   const [previewActiveId, setPreviewActiveId] = useState<string | null>(null);
   // The conversation the user just chose, applied immediately while the server renders it. undefined = follow the URL.
@@ -46,6 +51,8 @@ export function ChatWorkspace({ email, initialData, preview = false }: { email: 
   const [serverData, setServerData] = useState(initialData);
   const [notice, setNotice] = useState(initialData?.error ?? "");
   const composerRef = useRef<ComposerHandle>(null);
+  const latestData = useRef(initialData);
+  useLayoutEffect(() => { latestData.current = initialData; });
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const closeMenuRef = useRef<HTMLButtonElement>(null);
   const drawerRef = useRef<HTMLElement>(null);
@@ -63,11 +70,20 @@ export function ChatWorkspace({ email, initialData, preview = false }: { email: 
   const loadingConversation = !preview && pendingId != null && initialData?.activeId !== pendingId && !activeLocal?.length;
   const lastMessage = messages[messages.length - 1];
   const lastUser = useMemo(() => [...messages].reverse().find((message) => message.role === "user"), [messages]);
+  const recovering = recovery !== null;
   const controlsDisabled = sending || streaming;
+  // Message actions stay locked until the server confirms how the last response ended, so they cannot collide with it.
+  const messageActionsLocked = controlsDisabled || recovering;
   const initial = email.slice(0, 1).toUpperCase();
 
   // The navigation the user asked for has landed once the URL matches it; from then on the URL is the source of truth again.
   if (pendingId !== undefined && conversationParam === pendingId) setPendingId(undefined);
+
+  if (recovery && initialData && initialData !== recovery.baseline && initialData.activeId === recovery.conversationId && isRecoverySettled(initialData.messages, recovery.assistantId)) {
+    // Fresh server data says the response is settled: show the server's truth and drop any stale failure notice.
+    setRecovery(null);
+    setNotice(latestReplyFailed(initialData.messages) ? failureNotice : "");
+  }
 
   if (!preview && initialData !== serverData && initialData?.activeId === activeId && !sending && !streaming) {
     const pending = localMessages[initialData?.activeId ?? ""] ?? [];
@@ -83,6 +99,18 @@ export function ChatWorkspace({ email, initialData, preview = false }: { email: 
   }
 
   useEffect(() => () => streamController.current?.abort(), []);
+  const recoveryConversationId = recovery?.conversationId ?? null;
+  useEffect(() => {
+    if (!recoveryConversationId) return;
+    let polls = 0;
+    router.refresh();
+    const timer = setInterval(() => {
+      polls += 1;
+      if (polls >= recoveryMaxPolls) { clearInterval(timer); setRecovery(null); setNotice("We couldn't confirm that response. Reload the page to check it."); return; }
+      router.refresh();
+    }, recoveryPollMs);
+    return () => clearInterval(timer);
+  }, [recoveryConversationId, router]);
   useEffect(() => {
     if (!drawerOpen) return;
     closeMenuRef.current?.focus();
@@ -101,7 +129,7 @@ export function ChatWorkspace({ email, initialData, preview = false }: { email: 
   const openConversation = useStableCallback((id: string | null) => {
     if (busy.current && !streamController.current) return;
     streamController.current?.abort();
-    setNotice(""); setDrawerOpen(false); setEditingId(null);
+    setNotice(""); setDrawerOpen(false); setEditingId(null); setRecovery(null);
     const item = shownConversations.find((conversation) => conversation.id === id);
     if (item) setMode((item.selected_model as ChatModel) ?? "Balanced");
     if (preview) setPreviewActiveId(id);
@@ -120,6 +148,7 @@ export function ChatWorkspace({ email, initialData, preview = false }: { email: 
   async function generate(id: string, userMessageId: string, options: GenerateOptions = {}) {
     const controller = new AbortController();
     let assistantId: string | null = null;
+    let httpStatus: number | undefined;
     let buffer = "";
     let flushTimer: ReturnType<typeof setTimeout> | null = null;
     let shown = false;
@@ -134,7 +163,7 @@ export function ChatWorkspace({ email, initialData, preview = false }: { email: 
     streamController.current = controller;
     try {
       const response = await fetch("/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ conversationId: id, userMessageId, ...(options.regenerate ? { regenerate: true } : {}) }), signal: controller.signal });
-      if (!response.ok || !response.body) { const payload = await response.json().catch(() => null); throw new Error(payload?.error ?? "Nibie couldn't complete that response. Please try again."); }
+      if (!response.ok || !response.body) { if (!response.ok) httpStatus = response.status; const payload = await response.json().catch(() => null); throw new Error(payload?.error ?? failureNotice); }
       for await (const data of readChatSse(response.body)) {
         if (data.type === "start") {
           assistantId = data.id;
@@ -148,17 +177,26 @@ export function ChatWorkspace({ email, initialData, preview = false }: { email: 
       }
       flush();
       router.refresh();
-    } catch {
+    } catch (error) {
       flush();
-      const interrupted = controller.signal.aborted;
-      if (assistantId) setLocalMessages((items) => ({ ...items, [id]: (items[id] ?? []).map((message) => message.id === assistantId ? { ...message, content: message.content || (interrupted ? "Response stopped." : "Response unavailable."), status: interrupted ? "interrupted" : "error" } : message) }));
+      const kind = classifyStreamFailure({ error, aborted: controller.signal.aborted, httpStatus });
       if (!assistantId) clearPlaceholder();
-      if (!interrupted) setNotice("Nibie couldn't complete that response. Please try again.");
-      router.refresh();
+      if (needsServerCheck(kind)) {
+        // The outcome is not known from this side: the server saves the terminal state of every generation, so keep what is
+        // on screen, lock message actions, and let the polling effect adopt the server's final state.
+        if (assistantId && kind === "stopped") setLocalMessages((items) => ({ ...items, [id]: (items[id] ?? []).map((message) => message.id === assistantId ? { ...message, content: message.content || "Response stopped.", status: "interrupted" } : message) }));
+        setNotice(kind === "lost-connection" ? "The connection dropped. Checking whether your response was saved…" : kind === "in-progress" ? "A response is still finishing. It will appear here when it's done." : "");
+        setRecovery({ conversationId: id, assistantId, baseline: latestData.current });
+      } else {
+        // The server reported this failure itself, so it is final.
+        if (assistantId) setLocalMessages((items) => ({ ...items, [id]: (items[id] ?? []).map((message) => message.id === assistantId ? { ...message, content: message.content || "Response unavailable.", status: "error" } : message) }));
+        setNotice(failureNotice);
+        router.refresh();
+      }
     } finally { clearPlaceholder(); if (flushTimer) clearTimeout(flushTimer); streamController.current = null; busy.current = false; setSending(false); setStreaming(false); }
   }
   const submitMessage = useStableCallback(async (content: string) => {
-    if (!content || busy.current) return;
+    if (!content || busy.current || recovery) return;
     busy.current = true;
     setSending(true); setNotice(""); setEditingId(null);
     let id = activeId;
@@ -209,13 +247,13 @@ export function ChatWorkspace({ email, initialData, preview = false }: { email: 
   // Last-turn controls: only the latest user message can be edited, and only its reply can be regenerated.
   function repliesAfter(message: PersistedMessage) { return messages.filter((item) => item.role === "assistant" && item.position > message.position).map((item) => item.id); }
   const regenerate = useStableCallback(async () => {
-    if (preview || busy.current || !activeId || !lastUser) return;
+    if (preview || busy.current || recovery || !activeId || !lastUser) return;
     busy.current = true; setSending(true); setNotice(""); setEditingId(null);
     try { await generate(activeId, lastUser.id, { regenerate: true, replaceIds: repliesAfter(lastUser) }); }
     finally { busy.current = false; setSending(false); }
   });
   const saveEdit = useStableCallback(async (messageId: string, content: string) => {
-    if (preview || busy.current || !activeId || !lastUser || lastUser.id !== messageId || !content || content === lastUser.content) return;
+    if (preview || busy.current || recovery || !activeId || !lastUser || lastUser.id !== messageId || !content || content === lastUser.content) return;
     const id = activeId; const target = lastUser; const replaceIds = repliesAfter(target);
     busy.current = true; setSending(true); setNotice("");
     try {
@@ -277,7 +315,7 @@ export function ChatWorkspace({ email, initialData, preview = false }: { email: 
 
   return <main className="chat-workspace"><ChatSidebar {...sidebarProps} />{drawerOpen && <div className="mobile-drawer"><button className="drawer-scrim" aria-label="Dismiss menu backdrop" onClick={closeDrawer} /><ChatSidebar {...sidebarProps} mobile drawerRef={drawerRef} closeMenuRef={closeMenuRef} /></div>}
     <section className="chat-main" aria-label="Chat workspace"><header className="chat-header"><button ref={menuButtonRef} className="icon-button mobile-menu-button" aria-label="Open conversation menu" onClick={() => setDrawerOpen(true)}><Menu size={21} /></button><div className="header-model"><span className="model-dot" /><span>Nibie</span><span className="header-divider">/</span><span className="header-context">A little room to think</span></div><button className="header-new-chat" disabled={controlsDisabled} onClick={newChat}><Plus size={16} /><span>New chat</span></button></header>
-      <div className={`conversation-scroll ${messages.length || loadingConversation ? "has-messages" : "is-empty"}`}>{loadingConversation ? <div className="message-list conversation-skeleton" role="status" aria-busy="true" aria-label="Loading conversation"><div className="skeleton-line is-short" /><div className="skeleton-line" /><div className="skeleton-line" /><div className="skeleton-line is-medium" /></div> : messages.length ? <div className="message-list" aria-live="polite">{messages.map((message) => <MessageRow key={message.id} message={message} initial={initial} isLast={message.id === lastMessage?.id} isLastUser={message.id === lastUser?.id} canMutate={!preview} disabled={controlsDisabled} editing={editingId === message.id} onRegenerate={regenerate} onStartEdit={startEdit} onCancelEdit={cancelEdit} onSaveEdit={saveEdit} />)}{notice && <p className="local-notice" role="status">{notice}</p>}</div> : <div className="welcome-panel">{notice && <p className="local-notice" role="status">{notice}</p>}<div className="welcome-icon"><Sparkles size={19} strokeWidth={1.7} /></div><p className="welcome-eyebrow">A LITTLE ROOM TO THINK</p><h1>What’s on your mind?</h1><p className="welcome-copy">A fresh page for ideas, questions, and whatever you’re working through.</p><div className="suggestion-list" aria-label="Suggestions">{suggestions.map((suggestion) => <button key={suggestion} onClick={() => { composerRef.current?.set(suggestion); composerRef.current?.focus(); }}>{suggestion}<span>↗</span></button>)}</div></div>}</div>
-      <ChatComposer ref={composerRef} sending={sending} streaming={streaming} mode={mode} caption={caption} onSubmit={submitMessage} onStop={stopStream} onModeChange={changeMode} onAttach={attach} />
+      <div className={`conversation-scroll ${messages.length || loadingConversation ? "has-messages" : "is-empty"}`}>{loadingConversation ? <div className="message-list conversation-skeleton" role="status" aria-busy="true" aria-label="Loading conversation"><div className="skeleton-line is-short" /><div className="skeleton-line" /><div className="skeleton-line" /><div className="skeleton-line is-medium" /></div> : messages.length ? <div className="message-list" aria-live="polite">{messages.map((message) => <MessageRow key={message.id} message={message} initial={initial} isLast={message.id === lastMessage?.id} isLastUser={message.id === lastUser?.id} canMutate={!preview} disabled={messageActionsLocked} editing={editingId === message.id} onRegenerate={regenerate} onStartEdit={startEdit} onCancelEdit={cancelEdit} onSaveEdit={saveEdit} />)}{notice && <p className="local-notice" role="status">{notice}</p>}</div> : <div className="welcome-panel">{notice && <p className="local-notice" role="status">{notice}</p>}<div className="welcome-icon"><Sparkles size={19} strokeWidth={1.7} /></div><p className="welcome-eyebrow">A LITTLE ROOM TO THINK</p><h1>What’s on your mind?</h1><p className="welcome-copy">A fresh page for ideas, questions, and whatever you’re working through.</p><div className="suggestion-list" aria-label="Suggestions">{suggestions.map((suggestion) => <button key={suggestion} onClick={() => { composerRef.current?.set(suggestion); composerRef.current?.focus(); }}>{suggestion}<span>↗</span></button>)}</div></div>}</div>
+      <ChatComposer ref={composerRef} sending={sending || recovering} streaming={streaming} mode={mode} caption={caption} onSubmit={submitMessage} onStop={stopStream} onModeChange={changeMode} onAttach={attach} />
     </section></main>;
 }

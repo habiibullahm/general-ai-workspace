@@ -43,6 +43,9 @@ const chatEventSchema = z.discriminatedUnion("type", [
 ]);
 export type ChatStreamEvent = z.infer<typeof chatEventSchema>;
 
+// Thrown only when the server itself reported a failed response (an `error` event). Any other stream problem is transport-level.
+export class ChatStreamServerError extends Error {}
+
 export async function* readChatSse(body: ReadableStream<Uint8Array>): AsyncGenerator<ChatStreamEvent> {
   const reader = body.getReader();
   const decoder = new TextDecoder("utf-8", { fatal: true });
@@ -62,7 +65,7 @@ export async function* readChatSse(body: ReadableStream<Uint8Array>): AsyncGener
         const payload: unknown = JSON.parse(block.match(/^data: ([^\r\n]+)$/m)?.[1] ?? "null");
         if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("Invalid response stream.");
         const event = chatEventSchema.parse({ ...payload, type });
-        if (event.type === "error") throw new Error(event.error);
+        if (event.type === "error") throw new ChatStreamServerError(event.error);
         if (finished || (event.type === "start" ? started : !started) || (terminal && event.type !== "done")) throw new Error("Invalid response stream.");
         if (event.type === "start") started = true;
         if (event.type === "status") terminal = true;
