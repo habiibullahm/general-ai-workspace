@@ -3,6 +3,8 @@
 import { memo, useEffect, useImperativeHandle, useRef, useState, type KeyboardEvent, type Ref } from "react";
 import { ArrowUp, FilePlus2, X } from "lucide-react";
 import { ComposerMenu, type MenuItem } from "@/components/composer-menu";
+import { useChatFlag } from "@/components/use-chat-preferences";
+import { composerEnterAction } from "@/lib/chat/preferences";
 import type { ModelOption, ReasoningEffort } from "@/lib/chat/models";
 import type { ChatModel } from "@/lib/chat/validation";
 
@@ -35,6 +37,7 @@ const reasoningItems: MenuItem<ReasoningEffort>[] = [
 // The draft lives here, not in the workspace: typing re-renders only this component, never the message list or sidebar.
 export const ChatComposer = memo(function ChatComposer({ ref, sending, streaming, models, mode, reasoningModes, reasoning, caption, onSubmit, onStop, onModeChange, onReasoningChange, onAttach }: Props) {
   const [draft, setDraft] = useState("");
+  const [enterToSend] = useChatFlag("enterToSend");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   useImperativeHandle(ref, () => ({ set: setDraft, restore: (text) => setDraft((current) => current || text), clear: () => setDraft(""), focus: () => textareaRef.current?.focus() }), []);
 
@@ -50,13 +53,14 @@ export const ChatComposer = memo(function ChatComposer({ ref, sending, streaming
     if (content) onSubmit(content);
   }
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submit(); }
+    const action = composerEnterAction({ key: event.key, shiftKey: event.shiftKey, metaKey: event.metaKey, ctrlKey: event.ctrlKey, composing: event.nativeEvent.isComposing, enterToSend });
+    if (action === "send") { event.preventDefault(); submit(); }
   }
 
   const modelItems: MenuItem<ChatModel>[] = models.map((option) => ({ value: option.id, label: option.label, detail: option.model }));
   const reasoningSupported = reasoningModes.includes(mode);
 
-  return <div className="composer-dock"><form className="composer" onSubmit={(event) => { event.preventDefault(); submit(); }}><textarea ref={textareaRef} aria-label="Message Nibie" placeholder="Message Nibie…" value={draft} rows={1} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleKeyDown} />
+  return <div className="composer-dock"><form className="composer" onSubmit={(event) => { event.preventDefault(); submit(); }}><textarea ref={textareaRef} aria-label="Message Nibie" placeholder="Message Nibie…" enterKeyHint={enterToSend ? "send" : "enter"} value={draft} rows={1} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleKeyDown} />
     <div className="composer-tools"><div className="composer-left-tools">
       <button className="composer-icon" type="button" aria-label="Attach a file" title="Attachments are not available" onClick={onAttach}><FilePlus2 size={18} /></button>
       {modelItems.length > 0 && <ComposerMenu name="Model" value={mode} items={modelItems} onChange={onModeChange} />}

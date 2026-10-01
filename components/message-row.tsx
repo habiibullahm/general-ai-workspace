@@ -4,7 +4,9 @@ import { memo, useState, type KeyboardEvent } from "react";
 import { Pencil, RefreshCw } from "lucide-react";
 import { CopyButton } from "@/components/copy-button";
 import { MessageMarkdown } from "@/components/message-markdown";
+import { useChatFlag } from "@/components/use-chat-preferences";
 import type { PersistedMessage } from "@/lib/chat/read";
+import { formatMessageTimestamp } from "@/lib/chat/timestamps";
 
 const placeholderResponses = new Set(["Response stopped.", "Response unavailable."]);
 
@@ -36,6 +38,14 @@ function MessageEditor({ message, disabled, onCancel, onSave }: { message: Persi
   </div>;
 }
 
+function MessageTime({ value }: { value: string | undefined }) {
+  const [showTimestamps] = useChatFlag("showTimestamps");
+  if (!showTimestamps || !value) return null;
+  const label = formatMessageTimestamp(value);
+  if (!label) return null;
+  return <time className="message-time" dateTime={value}>{label}</time>;
+}
+
 // Memoized per message: while a reply streams, only the row whose message object changed re-renders.
 export const MessageRow = memo(function MessageRow({ message, initial, isLast, isLastUser, canMutate, disabled, editing, onRegenerate, onStartEdit, onCancelEdit, onSaveEdit }: Props) {
   if (message.role === "assistant") {
@@ -44,7 +54,7 @@ export const MessageRow = memo(function MessageRow({ message, initial, isLast, i
     const canRegenerate = canMutate && isLast && message.status !== "streaming";
     return <article className="message-row assistant">
       <div className="message-content assistant">
-        <div className="message-author">Nibie{message.status === "streaming" ? " · Thinking" : message.status === "interrupted" ? " · Stopped" : message.status === "error" ? " · Couldn't respond" : ""}</div>
+        <div className="message-author">Nibie{message.status === "streaming" ? " · Thinking" : message.status === "interrupted" ? " · Stopped" : message.status === "error" ? " · Couldn't respond" : ""}<MessageTime value={message.created_at} /></div>
         {waiting ? <span className="thinking-dots" role="img" aria-label="Nibie is thinking"><i /><i /><i /></span> : <MessageMarkdown content={message.content} />}
         {(canCopy || canRegenerate) && <div className="message-actions">
           {canCopy && <CopyButton text={message.content} label="Copy response" />}
@@ -58,6 +68,7 @@ export const MessageRow = memo(function MessageRow({ message, initial, isLast, i
       ? <div className="message-column user"><MessageEditor message={message} disabled={disabled} onCancel={onCancelEdit} onSave={(content) => onSaveEdit(message.id, content)} /></div>
       : <div className="message-column user">
         <div className="message-content user"><p>{message.content}</p></div>
+        <MessageTime value={message.created_at} />
         {canMutate && isLastUser && <div className="message-actions">
           <button type="button" className="message-action" disabled={disabled} onClick={() => onStartEdit(message.id)}><Pencil size={13} aria-hidden="true" /><span>Edit</span></button>
           {isLast && <button type="button" className="message-action" disabled={disabled} onClick={onRegenerate}><RefreshCw size={13} aria-hidden="true" /><span>Retry</span></button>}

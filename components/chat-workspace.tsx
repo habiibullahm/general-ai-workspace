@@ -9,14 +9,16 @@ import { ChatComposer, type ComposerHandle } from "@/components/chat-composer";
 import { ChatSidebar } from "@/components/chat-sidebar";
 import { SettingsDialog } from "@/components/settings/settings-dialog";
 import { MessageRow } from "@/components/message-row";
+import { forgetLastConversationId, readChatFlag, readLastConversationId, subscribeChatPreferences, writeLastConversationId } from "@/components/use-chat-preferences";
 import { useReasoningPreference } from "@/components/use-reasoning-preference";
 import { useStableCallback } from "@/components/use-stable-callback";
 import type { ConversationSummary, PersistedMessage } from "@/lib/chat/read";
 import type { ChatModel } from "@/lib/chat/validation";
 import type { ModelOption } from "@/lib/chat/models";
+import { decideRestoredConversation } from "@/lib/chat/preferences";
 import { modelForComposer } from "@/lib/preferences/model";
 import { defaultUserPreferences, type UserPreferences } from "@/lib/preferences/types";
-import { isNearBottom } from "@/lib/chat/scroll";
+import { followAfterSending, followStreamedContent, isNearBottom, trackNearBottom } from "@/lib/chat/scroll";
 import { readChatSse } from "@/lib/ai/sse";
 import { classifyStreamFailure, isRecoverySettled, latestReplyFailed, needsServerCheck, recoveryMaxPolls, recoveryPollMs } from "@/lib/chat/recovery";
 
@@ -30,10 +32,11 @@ const suggestions = ["Help me think through an idea", "Write something with me",
 const noConversations: ConversationSummary[] = [];
 // Streamed text is applied in small batches so a long reply is not re-parsed as Markdown for every network chunk.
 const streamFlushMs = 80;
+const previewStamp = "2026-10-01T08:30:00.000Z";
 const mockConversations: Conversation[] = [
-  { id: "preview-writing", title: "A thoughtful note to the team", selected_model: "Balanced", created_at: new Date().toISOString(), updated_at: new Date().toISOString(), messages: [{ id: "p1", role: "user", content: "Help me write a thoughtful note to my team after a busy launch week.", position: 1 }, { id: "p2", role: "assistant", content: "A good note can recognize the effort, name what the team accomplished, and leave room for everyone to recharge.\n\nYou might start with what you noticed most: the care people brought to the final details, the way they supported one another, or a moment that made you proud.", position: 2 }] },
-  { id: "preview-learning", title: "Learning the basics of astronomy", selected_model: "Balanced", created_at: new Date(Date.now() - 86400000).toISOString(), updated_at: new Date(Date.now() - 86400000).toISOString(), messages: [{ id: "p3", role: "user", content: "Where should I begin if I want to learn astronomy?", position: 1 }, { id: "p4", role: "assistant", content: "Start by looking up. Learning a few bright constellations and the phases of the Moon gives you a useful map. From there, the scale of the solar system becomes much easier to picture.", position: 2 }] },
-  { id: "preview-code", title: "Debouncing a search box", selected_model: "Balanced", created_at: new Date(Date.now() - 172800000).toISOString(), updated_at: new Date(Date.now() - 172800000).toISOString(), messages: [{ id: "p5", role: "user", content: "Show me a tiny debounce helper in TypeScript.", position: 1 }, { id: "p6", role: "assistant", content: "A debounce helper delays a call until input has settled.\n\n## Example\n\n```ts\nexport function debounce<T extends unknown[]>(fn: (...args: T) => void, wait = 250) {\n  let timer: ReturnType<typeof setTimeout> | undefined;\n  return (...args: T) => {\n    clearTimeout(timer);\n    timer = setTimeout(() => fn(...args), wait);\n  };\n}\n```\n\n- Use `wait` to tune responsiveness.\n- Read more in the [MDN guide](https://developer.mozilla.org/docs/Glossary/Debounce).", position: 2 }] },
+  { id: "preview-writing", title: "A thoughtful note to the team", selected_model: "Balanced", created_at: new Date().toISOString(), updated_at: new Date().toISOString(), messages: [{ id: "p1", role: "user", content: "Help me write a thoughtful note to my team after a busy launch week.", position: 1, created_at: previewStamp }, { id: "p2", role: "assistant", content: "A good note can recognize the effort, name what the team accomplished, and leave room for everyone to recharge.\n\nYou might start with what you noticed most: the care people brought to the final details, the way they supported one another, or a moment that made you proud.", position: 2, created_at: previewStamp }] },
+  { id: "preview-learning", title: "Learning the basics of astronomy", selected_model: "Balanced", created_at: new Date(Date.now() - 86400000).toISOString(), updated_at: new Date(Date.now() - 86400000).toISOString(), messages: [{ id: "p3", role: "user", content: "Where should I begin if I want to learn astronomy?", position: 1, created_at: previewStamp }, { id: "p4", role: "assistant", content: "Start by looking up. Learning a few bright constellations and the phases of the Moon gives you a useful map. From there, the scale of the solar system becomes much easier to picture.", position: 2, created_at: previewStamp }] },
+  { id: "preview-code", title: "Debouncing a search box", selected_model: "Balanced", created_at: new Date(Date.now() - 172800000).toISOString(), updated_at: new Date(Date.now() - 172800000).toISOString(), messages: [{ id: "p5", role: "user", content: "Show me a tiny debounce helper in TypeScript.", position: 1, created_at: previewStamp }, { id: "p6", role: "assistant", content: "A debounce helper delays a call until input has settled.\n\n## Example\n\n```ts\nexport function debounce<T extends unknown[]>(fn: (...args: T) => void, wait = 250) {\n  let timer: ReturnType<typeof setTimeout> | undefined;\n  return (...args: T) => {\n    clearTimeout(timer);\n    timer = setTimeout(() => fn(...args), wait);\n  };\n}\n```\n\n- Use `wait` to tune responsiveness.\n- Read more in the [MDN guide](https://developer.mozilla.org/docs/Glossary/Debounce).", position: 2, created_at: previewStamp }] },
 ];
 
 const noModels: ModelOption[] = [];
@@ -82,10 +85,13 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
   const composerRef = useRef<ComposerHandle>(null);
   const latestData = useRef(initialData);
   useLayoutEffect(() => { latestData.current = initialData; });
-  // The conversation follows new content while the reader is at the bottom (see lib/chat/scroll.ts).
+  // The conversation follows new content while auto-follow is on and the reader is near the bottom (see lib/chat/scroll.ts).
   const scrollRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);
-  const handleScroll = useStableCallback(() => { if (scrollRef.current) followRef.current = isNearBottom(scrollRef.current); });
+  const autoFollowRef = useRef(readChatFlag("autoFollow"));
+  const pinLatestRef = useRef(true);
+  const restoredRef = useRef(false);
+  const handleScroll = useStableCallback(() => { if (scrollRef.current) followRef.current = trackNearBottom(autoFollowRef.current, isNearBottom(scrollRef.current)); });
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const closeMenuRef = useRef<HTMLButtonElement>(null);
   const drawerRef = useRef<HTMLElement>(null);
@@ -110,7 +116,15 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
   const initial = email.slice(0, 1).toUpperCase();
   useLayoutEffect(() => {
     const box = scrollRef.current;
-    if (box && followRef.current) box.scrollTop = box.scrollHeight;
+    if (!box) return;
+    if (pinLatestRef.current) {
+      if (loadingConversation) return;
+      box.scrollTop = box.scrollHeight;
+      pinLatestRef.current = false;
+      followRef.current = trackNearBottom(autoFollowRef.current, isNearBottom(box));
+      return;
+    }
+    if (followStreamedContent(autoFollowRef.current, followRef.current)) box.scrollTop = box.scrollHeight;
   }, [messages, activeId, loadingConversation]);
 
   // The navigation the user asked for has landed once the URL matches it; from then on the URL is the source of truth again.
@@ -137,6 +151,35 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
   }
 
   useEffect(() => () => streamController.current?.abort(), []);
+  useEffect(() => subscribeChatPreferences(() => {
+    autoFollowRef.current = readChatFlag("autoFollow");
+    const box = scrollRef.current;
+    followRef.current = trackNearBottom(autoFollowRef.current, box ? isNearBottom(box) : false);
+  }), []);
+  useEffect(() => {
+    if (preview || restoredRef.current) return;
+    restoredRef.current = true;
+    const history = latestData.current?.conversations ?? [];
+    const decision = decideRestoredConversation({
+      enabled: readChatFlag("restoreLastChat"),
+      storedId: readLastConversationId(),
+      accessibleIds: history.map((item) => item.id),
+      requestedId: new URLSearchParams(window.location.search).get("conversation"),
+      historyAvailable: !(latestData.current?.error && history.length === 0),
+    });
+    if (decision.forgetStoredId) forgetLastConversationId();
+    if (!decision.conversationId) return;
+    const item = history.find((conversation) => conversation.id === decision.conversationId);
+    if (!item) return;
+    setMode(modelForComposer({ hasConversation: true, conversationModel: item.selected_model, accountDefault: savedPreferences.defaultModel, available: availableModes }) ?? "Balanced");
+    pinLatestRef.current = true;
+    setPendingId(item.id);
+    router.replace(`/?conversation=${encodeURIComponent(item.id)}`, { scroll: false });
+  }, [availableModes, preview, router, savedPreferences.defaultModel]);
+  useEffect(() => {
+    if (preview || !activeId || !shownConversations.some((item) => item.id === activeId)) return;
+    writeLastConversationId(activeId);
+  }, [activeId, preview, shownConversations]);
   const recoveryConversationId = recovery?.conversationId ?? null;
   useEffect(() => {
     if (!recoveryConversationId) return;
@@ -173,7 +216,7 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
   const openConversation = useStableCallback((id: string | null) => {
     if (busy.current && !streamController.current) return;
     streamController.current?.abort();
-    setNotice(""); setDrawerOpen(false); setEditingId(null); setRecovery(null); followRef.current = true;
+    setNotice(""); setDrawerOpen(false); setEditingId(null); setRecovery(null); pinLatestRef.current = true;
     const item = shownConversations.find((conversation) => conversation.id === id);
     if (item) {
       pinnedNewChatMode.current = false;
@@ -219,7 +262,7 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
           assistantId = data.id;
           // The server has replaced the previous reply once it announces the new one, so hide the old row only now.
           if (options.replaceIds?.length) setRemovedIds((ids) => [...ids, ...options.replaceIds!]);
-          const reply: PersistedMessage = { id: data.id, role: "assistant", content: "", position: data.position, status: "streaming" };
+          const reply: PersistedMessage = { id: data.id, role: "assistant", content: "", position: data.position, status: "streaming", created_at: new Date().toISOString() };
           setLocalMessages((items) => { const rows = items[id] ?? []; return { ...items, [id]: options.placeholderId && rows.some((row) => row.id === options.placeholderId) ? rows.map((row) => row.id === options.placeholderId ? reply : row) : [...rows, reply] }; });
         }
         if (data.type === "delta") { buffer += data.text; if (!shown) flush(); else if (!flushTimer) flushTimer = setTimeout(flush, streamFlushMs); }
@@ -248,13 +291,13 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
   const submitMessage = useStableCallback(async (content: string) => {
     if (!content || busy.current || recovery) return;
     busy.current = true;
-    setSending(true); setNotice(""); setEditingId(null); followRef.current = true;
+    setSending(true); setNotice(""); setEditingId(null); followRef.current = followAfterSending(autoFollowRef.current);
     let id = activeId;
     try {
       if (preview) {
         const id = activeId ?? `preview-local-${crypto.randomUUID()}`;
         const item = activeConversation ?? { id, title: content.slice(0, 42), selected_model: mode, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
-        const row: PersistedMessage = { id: `local-${crypto.randomUUID()}`, role: "user", content, position: messages.length + 1 };
+        const row: PersistedMessage = { id: `local-${crypto.randomUUID()}`, role: "user", content, position: messages.length + 1, created_at: new Date().toISOString() };
         if (!activeConversation) setLocalConversations((items) => [item, ...items]);
         setLocalMessages((items) => ({ ...items, [id]: [...(items[id] ?? []), row] }));
         setPreviewActiveId(id); composerRef.current?.clear(); setNotice("Your message is shown in this local preview. Replies are not connected yet.");
@@ -268,7 +311,8 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
       const withoutPending = (rows: PersistedMessage[] = []) => rows.filter((row) => row.id !== messageId && row.id !== placeholderId);
       // Show the message and a thinking row immediately; the server confirms (or we roll back and restore the draft) below.
       const key = id ?? "";
-      setLocalMessages((items) => ({ ...items, [key]: [...withoutPending(items[key]), { id: messageId, role: "user", content, position: basePosition + 1, status: "complete" }, { id: placeholderId, role: "assistant", content: "", position: basePosition + 2, status: "streaming" }] }));
+      const stamped = new Date().toISOString();
+      setLocalMessages((items) => ({ ...items, [key]: [...withoutPending(items[key]), { id: messageId, role: "user", content, position: basePosition + 1, status: "complete", created_at: stamped }, { id: placeholderId, role: "assistant", content: "", position: basePosition + 2, status: "streaming", created_at: stamped }] }));
       composerRef.current?.clear();
       const rollback = (message: string, from: string) => { setLocalMessages((items) => ({ ...items, [from]: withoutPending(items[from]) })); composerRef.current?.restore(content); setNotice(message); };
       let saved: { id: string; position: number };
@@ -302,20 +346,20 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
   function repliesAfter(message: PersistedMessage) { return messages.filter((item) => item.role === "assistant" && item.position > message.position).map((item) => item.id); }
   const regenerate = useStableCallback(async () => {
     if (preview || busy.current || recovery || !activeId || !lastUser) return;
-    busy.current = true; setSending(true); setNotice(""); setEditingId(null); followRef.current = true;
+    busy.current = true; setSending(true); setNotice(""); setEditingId(null); followRef.current = followAfterSending(autoFollowRef.current);
     try { await generate(activeId, lastUser.id, { regenerate: true, replaceIds: repliesAfter(lastUser) }); }
     finally { busy.current = false; setSending(false); }
   });
   const saveEdit = useStableCallback(async (messageId: string, content: string) => {
     if (preview || busy.current || recovery || !activeId || !lastUser || lastUser.id !== messageId || !content || content === lastUser.content) return;
     const id = activeId; const target = lastUser; const replaceIds = repliesAfter(target);
-    busy.current = true; setSending(true); setNotice(""); followRef.current = true;
+    busy.current = true; setSending(true); setNotice(""); followRef.current = followAfterSending(autoFollowRef.current);
     try {
       const result = await editLastUserMessageAction(id, target.id, content);
       if (result.error || !result.data) { setNotice(result.error ?? "Your edit couldn't be saved."); return; }
       setEditingId(null);
       setRemovedIds((ids) => [...ids, ...replaceIds]);
-      setLocalMessages((items) => ({ ...items, [id]: [{ id: target.id, role: "user", content, position: target.position, status: "complete" }] }));
+      setLocalMessages((items) => ({ ...items, [id]: [{ id: target.id, role: "user", content, position: target.position, status: "complete", created_at: target.created_at }] }));
       await generate(id, target.id);
     } catch {
       setNotice("Nibie couldn't complete that response. Please try again.");
@@ -350,6 +394,7 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
     if (preview || !window.confirm(`Delete “${item.title}”?`)) return;
     const result = await deleteConversationAction(item.id);
     if (result.error) { setNotice(result.error); return; }
+    forgetLastConversationId(item.id);
     setLocalConversations((items) => items.filter((entry) => entry.id !== item.id));
     setLocalMessages((items) => { const next = { ...items }; delete next[item.id]; return next; });
     if (activeId === item.id) openConversation(null);

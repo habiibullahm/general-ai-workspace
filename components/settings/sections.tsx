@@ -1,8 +1,10 @@
 "use client";
 
 import type { ComponentType } from "react";
-import type { ModelOption } from "@/lib/chat/models";
+import { useChatFlag } from "@/components/use-chat-preferences";
 import { SettingsChoice, SettingsSection, SettingsTextField } from "@/components/settings/settings-section";
+import type { ModelOption } from "@/lib/chat/models";
+import type { ChatPreferenceFlag } from "@/lib/chat/preferences";
 import { chatModelToPreferenceModel, preferenceModelToChatModel, resolveDefaultModel } from "@/lib/preferences/model";
 import { aboutYouLimit, preferredNameLimit, type PreferencePatch, type UserPreferences } from "@/lib/preferences/types";
 
@@ -53,9 +55,26 @@ export function NibieSettingsSection({ preferences, models, disabled, onChange }
   </SettingsSection>;
 }
 
-export const ChatSettingsSection: ComponentType<SettingsSectionProps> = function ChatSettingsSection() {
-  return <SettingsSection title="Chat" description="How composing and reading a conversation behaves on this device.">
-    <p className="settings-note">Enter to send, auto-follow, timestamps, and restoring the last chat will be added here. They stay on this device.</p>
+const chatRows: { flag: ChatPreferenceFlag; label: string; on: string; off: string }[] = [
+  { flag: "enterToSend", label: "Enter to send", on: "Enter sends. Shift+Enter starts a new line.", off: "Enter starts a new line. Ctrl+Enter or ⌘+Enter sends." },
+  { flag: "autoFollow", label: "Auto-follow streaming", on: "Stay with new messages while you’re near the bottom.", off: "Streaming and sending leave your place in the transcript." },
+  { flag: "showTimestamps", label: "Show timestamps", on: "Each message shows a short time.", off: "Times stay hidden." },
+  { flag: "restoreLastChat", label: "Restore last conversation", on: "Returning opens your last chat. A missing chat starts a new one.", off: "Nibie opens a new chat." },
+];
+
+function ChatSetting({ flag, label, on, off }: { flag: ChatPreferenceFlag; label: string; on: string; off: string }) {
+  const [enabled, setEnabled] = useChatFlag(flag);
+  const labelId = `chat-setting-${flag}`;
+  const detailId = `${labelId}-detail`;
+  return <div className="chat-settings-row">
+    <div className="chat-settings-copy"><div className="chat-settings-label" id={labelId}>{label}</div><p className="chat-settings-detail" id={detailId}>{enabled ? on : off}</p></div>
+    <button type="button" className="chat-settings-switch" role="switch" aria-checked={enabled} aria-labelledby={labelId} aria-describedby={detailId} onClick={() => setEnabled(!enabled)}><span /></button>
+  </div>;
+}
+
+export function ChatSettingsSection() {
+  return <SettingsSection title="Chat" description="How composing and reading a conversation behaves on this device. These choices stay on this device.">
+    <div className="chat-settings">{chatRows.map((row) => <ChatSetting key={row.flag} {...row} />)}</div>
   </SettingsSection>;
 }
 
