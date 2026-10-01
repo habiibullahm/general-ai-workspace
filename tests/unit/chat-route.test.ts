@@ -125,6 +125,26 @@ describe("POST /api/chat", () => {
     expect(writes).toContainEqual(expect.objectContaining({ content: "Response unavailable.", status: "error" }));
   });
 
+  it("logs a provider configuration error by name without returning it to the client", async () => {
+    const results = [
+      { data: { id: "user-message", position: 1, content: "hello" }, error: null },
+      { data: [{ role: "user", content: "hello", status: "complete", position: 1 }], error: null },
+      { data: null, error: null },
+    ];
+    const from = vi.fn((table: string) => table === "conversations"
+      ? query({ data: { id: "conversation", selected_model: "Fast" }, error: null })
+      : query(results.shift()!));
+    createClient.mockResolvedValue({ auth: { getUser: async () => ({ data: { user: { id: "owner" } }, error: null }) }, from, rpc: claim });
+    stream.mockRejectedValue(new Error("Unsupported AI_PROVIDER; expected openai-compatible."));
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const response = await POST(validRequest());
+      expect(response.status).toBe(502);
+      expect(await response.text()).not.toContain("AI_PROVIDER");
+      expect(logged).toHaveBeenCalledWith("Unsupported AI_PROVIDER; expected openai-compatible.");
+    } finally { logged.mockRestore(); }
+  });
+
   it("aborts the provider request and persists interrupted state when the client disconnects", async () => {
     const writes: unknown[] = [];
     const results = [

@@ -73,7 +73,7 @@ async function respond(request: Request) {
   let responseStream: ReadableStream<Uint8Array>;
   try { responseStream = await chatProvider.stream(selected.data, context, aborter.signal); }
   catch (error) {
-    if (error instanceof Error && error.message.startsWith("Missing AI configuration:")) console.error(error.message);
+    if (error instanceof Error && /^(Missing AI configuration:|Unsupported AI_PROVIDER)/.test(error.message)) console.error(error.message);
     try { await persist(clientCancelled ? "Response stopped." : "Response unavailable.", clientCancelled ? "interrupted" : "error"); }
     finally { clearTimeout(timeout); request.signal.removeEventListener("abort", onRequestAbort); }
     return NextResponse.json({ error: safeError }, { status: 502 });
