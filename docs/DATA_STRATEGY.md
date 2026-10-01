@@ -1,4 +1,4 @@
-# DATA_STRATEGY — General AI Workspace
+# DATA_STRATEGY — Nibie
 
 > Where data comes from, how it is classified and how it is used. Structured data stays structured.
 

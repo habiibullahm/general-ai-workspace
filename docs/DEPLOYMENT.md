@@ -1,4 +1,4 @@
-# DEPLOYMENT — General AI Workspace
+# DEPLOYMENT — Nibie
 
 > How changes reach production and how readiness is decided. A successful build is not production-ready.
 
@@ -89,7 +89,7 @@ The `openai-compatible` adapter sends server-side streaming requests to `${AI_BA
 
 ### M4 authenticated verification
 
-Continue M4 from `feat/m4-ai-streaming`; integrate verified work into `master`. The stale `main` branch is not an implementation or release baseline.
+Production deploys from `main` through the Git-connected Vercel project `nibie` at https://nibie-ai.vercel.app. M4 and M5 are merged into `main`; the former `master` branch has been retired and its full history lives in `main`.
 
 Apply the additive chat-generation migration after testing it on the dedicated loopback database. Runtime RPCs use the authenticated Supabase client and RLS; migration credentials must never be used for normal user-data requests.
 
@@ -97,7 +97,7 @@ Run `npm run test:chat:e2e` with `E2E_USER_EMAIL` and `E2E_USER_PASSWORD` for a 
 
 The test verifies login, conversation creation, real provider SSE, terminal persistence, refresh/reopen, and sign-in again. Provider configuration must be real, and the six required `AI_*` variables must be available server-side. Sensitive Vercel variables pulled as `[SENSITIVE]` are not usable local configuration.
 
-Keep M4 unmerged until this journey passes. Rate limiting, evaluation, request tracing, and remaining release hardening follow the working core slice and remain required before production release.
+M4 passed this journey and is merged. Rate limiting, evaluation, request tracing, and remaining release hardening follow the working core slice and remain required before production release.
 
 ### Pilot gate
 

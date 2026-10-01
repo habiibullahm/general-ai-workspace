@@ -1,4 +1,4 @@
-# EVALUATION — General AI Workspace
+# EVALUATION — Nibie
 
 > AI quality must be measurable. Categories come from the success criteria first, then from the enabled capabilities.
 

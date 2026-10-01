@@ -1,4 +1,4 @@
-# PRD — General AI Workspace
+# PRD — Nibie
 
 > What to build in this version and how to know it works. Product intent lives in APP_CORE.md.
 
@@ -10,7 +10,7 @@ V1 custom chat requirements: persistent sidebar/history; selectable model; token
 
 ## Summary
 
-General AI Workspace is a custom AI application delivered as a public application. A premium, provider-independent AI chat workspace that lets users manage ongoing conversations, choose models, and control streamed responses.
+Nibie is a custom AI application delivered as a public application. A premium, provider-independent AI chat workspace that lets users manage ongoing conversations, choose models, and control streamed responses.
 
 ## Primary user
 

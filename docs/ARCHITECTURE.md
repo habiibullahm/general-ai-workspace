@@ -1,4 +1,4 @@
-# ARCHITECTURE — General AI Workspace
+# ARCHITECTURE — Nibie
 
 > How the system is structured. Keep it understandable; do not add services or frameworks that are not listed here.
 
@@ -71,7 +71,7 @@ Response
 ## Folder structure
 
 ```text
-general-ai-workspace/
+nibie-code/
 ├── src/
 │   ├── app/                # Routes (UI)
 │   │   └── api/            # Route handlers (server API)

@@ -1,4 +1,4 @@
-# APP_CORE — General AI Workspace
+# APP_CORE — Nibie
 
 > The application’s source of truth. Every other document and all code must stay consistent with this file.
 
@@ -16,7 +16,7 @@ Minimal productivity UI: warm neutral/off-white, subtle borders, generous whites
 
 | Field | Value |
 | --- | --- |
-| Name | General AI Workspace |
+| Name | Nibie |
 | Product type | Custom AI Application |
 | Deployment type | Public application |
 | AI application | Yes |

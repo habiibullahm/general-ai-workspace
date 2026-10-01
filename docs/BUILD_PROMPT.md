@@ -1,6 +1,6 @@
-# BUILD_PROMPT — General AI Workspace
+# BUILD_PROMPT — Nibie
 
-You are implementing **General AI Workspace**, a custom AI application.
+You are implementing **Nibie**, a custom AI application.
 
 ## Source of truth
 

@@ -1,4 +1,4 @@
-# AI_WORKFLOW — General AI Workspace
+# AI_WORKFLOW — Nibie
 
 > Direct general-purpose chat flow: authenticate, authorize, validate, assemble conversation context, call the provider adapter, stream, and persist the outcome. No retrieval stage.
 
