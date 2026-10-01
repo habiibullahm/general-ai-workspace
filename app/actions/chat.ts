@@ -1,7 +1,8 @@
 "use server";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { modelSchema, validateConversationId, validateMessage, validateTitle } from "@/lib/chat/validation";
+import { modelSchema, validateConversationId, validateMessage, validateTitle, type ChatModel } from "@/lib/chat/validation";
+import { getModelOptions } from "@/lib/ai/registry";
 
 export type ChatActionResult<T = undefined> = { data?: T; error?: string };
 type ConversationRow = { id: string; title: string; selected_model: string; created_at: string; updated_at: string };
@@ -13,6 +14,10 @@ async function authenticatedClient() {
   return { supabase, user };
 }
 
+// A mode can only be saved when the server has a model configured for it.
+const modelUnavailable = { error: "That model isn't available." };
+const isModeAvailable = (mode: ChatModel) => getModelOptions().models.some((option) => option.id === mode);
+
 function failure<T>(): ChatActionResult<T> {
   return { error: "We couldn't save that change. Please try again." };
 }
@@ -20,6 +25,7 @@ function failure<T>(): ChatActionResult<T> {
 export async function createConversationAction(model: unknown): Promise<ChatActionResult<ConversationRow>> {
   const parsedModel = modelSchema.safeParse(model);
   if (!parsedModel.success) return { error: "Choose a valid response mode." };
+  if (!isModeAvailable(parsedModel.data)) return modelUnavailable;
   try {
     const { supabase, user } = await authenticatedClient();
     const { data, error } = await supabase.from("conversations").insert({
@@ -39,6 +45,7 @@ export async function updateConversationModelAction(id: unknown, model: unknown)
   const parsedModel = modelSchema.safeParse(model);
   if (!parsedId.success) return { error: "Choose a valid conversation." };
   if (!parsedModel.success) return { error: "Choose a valid response mode." };
+  if (!isModeAvailable(parsedModel.data)) return modelUnavailable;
   try {
     const { supabase } = await authenticatedClient();
     const { data, error } = await supabase.from("conversations").update({ selected_model: parsedModel.data, updated_at: new Date().toISOString() }).eq("id", parsedId.data).select("id").maybeSingle();

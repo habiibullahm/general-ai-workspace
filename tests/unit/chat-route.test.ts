@@ -1,15 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { createClient, stream, claim } = vi.hoisted(() => ({ createClient: vi.fn(), stream: vi.fn(), claim: vi.fn() }));
+const { createClient, stream, claim, modelOptions } = vi.hoisted(() => ({ createClient: vi.fn(), stream: vi.fn(), claim: vi.fn(), modelOptions: vi.fn() }));
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: createClient }));
 vi.mock("@/lib/ai/provider", () => ({ chatProvider: { stream } }));
+vi.mock("@/lib/ai/registry", () => ({ getModelOptions: modelOptions }));
+const allModes = { models: ["Fast", "Balanced", "Reasoning"].map((id) => ({ id, label: id, model: `${id.toLowerCase()}-id` })), reasoningModes: ["Reasoning"] };
 
 import { POST } from "../../app/api/chat/route";
 const assistantId = "e3b624e6-d792-47a8-8ff2-46724452c1ca";
 const assistant = { id: assistantId, position: 3, content: "…", status: "streaming", replayed: false };
 
 describe("POST /api/chat", () => {
-  beforeEach(() => { createClient.mockReset(); stream.mockReset(); claim.mockReset().mockReturnValue(query({ data: assistant, error: null })); });
+  beforeEach(() => { createClient.mockReset(); stream.mockReset(); modelOptions.mockReset().mockReturnValue(allModes); claim.mockReset().mockReturnValue(query({ data: assistant, error: null })); });
   afterEach(() => vi.useRealTimers());
 
   it("returns 401 before reading request data or invoking a provider", async () => {
@@ -80,7 +82,7 @@ describe("POST /api/chat", () => {
     expect(response.headers.get("content-type")).toContain("text/event-stream");
     expect(body).toContain('event: delta\ndata: {"text":"Hello"}');
     expect(body).toContain('event: status\ndata: {"status":"complete"}');
-    expect(stream).toHaveBeenCalledWith("Balanced", [{ role: "user", content: "hello" }], expect.any(AbortSignal));
+    expect(stream).toHaveBeenCalledWith("Balanced", [{ role: "user", content: "hello" }], expect.any(AbortSignal), { reasoning: "auto" });
     expect(claim).toHaveBeenCalledWith("claim_assistant_message", { p_conversation_id: "conversation", p_user_message_id: "b79e56e1-b479-46f4-97d3-30b2e22be90e" });
     expect(body).toContain(`event: start\ndata: {"id":"${assistantId}","position":3}`);
     expect(writes).toContainEqual(expect.objectContaining({ content: "Hello", status: "complete" }));
@@ -247,6 +249,81 @@ describe("POST /api/chat", () => {
     expect(body).toContain("event: error");
     expect(from.mock.results.at(-1)?.value.eq).toHaveBeenCalledWith("status", "streaming");
     expect(from.mock.results.at(-1)?.value.eq).toHaveBeenCalledWith("id", assistantId);
+  });
+
+  describe("model and reasoning selection", () => {
+    const post = (extra: Record<string, unknown>) => {
+      const request = validRequest();
+      return POST(new Request(request.url, { method: "POST", headers: request.headers, body: JSON.stringify({ conversationId: "5e9bdcca-9205-4fea-a773-13952bb78c44", userMessageId: "b79e56e1-b479-46f4-97d3-30b2e22be90e", ...extra }) }));
+    };
+
+    it("uses the requested mode instead of the saved one, and resolves it only on the server", async () => {
+      readyClient([]);
+      stream.mockResolvedValue(sseBody("ok"));
+      expect((await post({ model: "Fast" })).status).toBe(200);
+      expect(stream.mock.calls[0][0]).toBe("Fast");
+    });
+
+    it("rejects anything that is not one of the three modes, so a client cannot name a provider model", async () => {
+      readyClient([]);
+      for (const model of ["gpt-6-luna", "fast", "", 7, null, { id: "Fast" }]) expect((await post({ model })).status).toBe(400);
+      expect(claim).not.toHaveBeenCalled();
+      expect(stream).not.toHaveBeenCalled();
+    });
+
+    it("rejects a mode that is not configured on the server, before reading any user data", async () => {
+      modelOptions.mockReturnValue({ models: allModes.models.filter((option) => option.id !== "Reasoning"), reasoningModes: [] });
+      const from = readyClient([]);
+      const response = await post({ model: "Reasoning" });
+      expect(response.status).toBe(400);
+      expect(await response.text()).toContain("isn't available");
+      expect(from).not.toHaveBeenCalled();
+      expect(stream).not.toHaveBeenCalled();
+    });
+
+    it("falls back to an available mode when the saved one is no longer configured", async () => {
+      modelOptions.mockReturnValue({ models: allModes.models.filter((option) => option.id === "Fast"), reasoningModes: [] });
+      readyClient([]);
+      stream.mockResolvedValue(sseBody("ok"));
+      expect((await post({})).status).toBe(200);
+      expect(stream.mock.calls[0][0]).toBe("Fast");
+    });
+
+    it("fails safely when no mode is configured at all", async () => {
+      modelOptions.mockReturnValue({ models: [], reasoningModes: [] });
+      readyClient([]);
+      expect((await post({})).status).toBe(503);
+      expect(stream).not.toHaveBeenCalled();
+    });
+
+    it("passes an allowed reasoning effort to the provider only for modes that support it", async () => {
+      readyClient([]);
+      stream.mockResolvedValue(sseBody("ok"));
+      expect((await post({ model: "Reasoning", reasoning: "low" })).status).toBe(200);
+      expect(stream).toHaveBeenCalledWith("Reasoning", expect.any(Array), expect.any(AbortSignal), { reasoning: "low" });
+    });
+
+    it("rejects a reasoning effort for a mode that does not support it, without calling the provider", async () => {
+      readyClient([]);
+      const response = await post({ model: "Balanced", reasoning: "high" });
+      expect(response.status).toBe(400);
+      expect(await response.text()).toContain("Reasoning isn't available");
+      expect(claim).not.toHaveBeenCalled();
+      expect(stream).not.toHaveBeenCalled();
+    });
+
+    it("rejects reasoning values outside the allowlist", async () => {
+      readyClient([]);
+      for (const reasoning of ["bogus", "xhigh", "LOW", "", 1, null]) expect((await post({ model: "Reasoning", reasoning })).status).toBe(400);
+      expect(stream).not.toHaveBeenCalled();
+    });
+
+    it("treats auto as no reasoning parameter, even for modes that do not support it", async () => {
+      readyClient([]);
+      stream.mockResolvedValue(sseBody("ok"));
+      expect((await post({ model: "Balanced", reasoning: "auto" })).status).toBe(200);
+      expect(stream.mock.calls[0][3]).toEqual({ reasoning: "auto" });
+    });
   });
 });
 

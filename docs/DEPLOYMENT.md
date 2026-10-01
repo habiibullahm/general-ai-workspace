@@ -76,14 +76,21 @@ Names only. Values live in the platform’s secret store and are never committed
 | `DATABASE_URL` | Server-only PostgreSQL migration connection |
 | `AI_BASE_URL` | Provider endpoint (OpenAI-compatible or adapter-specific) |
 | `AI_API_KEY` | Server-side only |
-| `AI_MODEL_FAST` | Provider model mapped to persisted `Fast` response mode; server-only |
-| `AI_MODEL_BALANCED` | Provider model mapped to persisted `Balanced` response mode; server-only |
-| `AI_MODEL_REASONING` | Provider model mapped to persisted `Reasoning` response mode; server-only |
+| `AI_MODEL_FAST` | Provider model mapped to the `Fast` mode in the model picker; server-only. Optional (see below) |
+| `AI_MODEL_BALANCED` | Provider model mapped to the `Balanced` mode; server-only. Optional (see below) |
+| `AI_MODEL_REASONING` | Provider model mapped to the `Reasoning` mode; server-only. Optional (see below) |
+| `AI_REASONING_MODES` | Optional. Comma-separated modes (for example `Reasoning`) whose provider model has been verified to honour a reasoning effort. Empty or unset hides the Reasoning control |
 | `AI_PROVIDER` | Server-side adapter name; currently `openai-compatible` |
 | `RATE_LIMIT_PER_MINUTE` | Requests per client per minute |
 | `APP_ENV` | development \| staging \| production |
 
 The `openai-compatible` adapter sends server-side streaming requests to `${AI_BASE_URL}/chat/completions` using the configured model mapping and an authorization bearer token. Keep every `AI_*` variable server-only; diagnostics may name missing variables but must never include their values.
+
+### Model picker and reasoning control
+
+The composer offers only the modes that have a model configured: set any one or more of `AI_MODEL_FAST`, `AI_MODEL_BALANCED`, `AI_MODEL_REASONING` (at least one is required). The client can only name `Fast`, `Balanced` or `Reasoning`; the provider model id is resolved on the server, and a mode that is not configured is rejected with a 400. The model name shown next to each mode is the configured value; the provider URL and key never leave the server.
+
+The Reasoning control (Auto / Low / Medium / High) is shown only for modes listed in `AI_REASONING_MODES`, and the route rejects a non-Auto effort for any other mode. Only list a mode after verifying that its provider model validates and honours `reasoning_effort`; a provider that accepts any value (including an invalid one) does not count as support. `Auto` never sends the parameter.
 
 ## Release gate
 

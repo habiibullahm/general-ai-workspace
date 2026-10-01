@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { modelSchema, validateConversationId, validateMessage } from "@/lib/chat/validation";
+import { defaultReasoningEffort, reasoningAllowed, reasoningEffortSchema, resolveMode } from "@/lib/chat/models";
 import { chatProvider } from "@/lib/ai/provider";
+import { getModelOptions } from "@/lib/ai/registry";
 import { readOpenAiSse } from "@/lib/ai/sse";
 
 export const runtime = "nodejs";
@@ -27,16 +29,26 @@ async function respond(request: Request) {
 
   let body: unknown;
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Invalid request." }, { status: 400 }); }
-  const value = body as { conversationId?: unknown; userMessageId?: unknown; regenerate?: unknown };
+  const value = body as { conversationId?: unknown; userMessageId?: unknown; regenerate?: unknown; model?: unknown; reasoning?: unknown };
   const parsedId = validateConversationId(value?.conversationId);
   const parsedMessageId = validateConversationId(value?.userMessageId);
-  if (!parsedId.success || !parsedMessageId.success || (value.regenerate !== undefined && typeof value.regenerate !== "boolean")) return NextResponse.json({ error: "Invalid request." }, { status: 400 });
+  // The client may name a mode and a reasoning effort, but only from fixed vocabularies; neither is ever a provider model id.
+  const requestedModel = value?.model === undefined ? undefined : modelSchema.safeParse(value.model);
+  const requestedReasoning = value?.reasoning === undefined ? undefined : reasoningEffortSchema.safeParse(value.reasoning);
+  if (!parsedId.success || !parsedMessageId.success || (value.regenerate !== undefined && typeof value.regenerate !== "boolean") || requestedModel?.success === false || requestedReasoning?.success === false) return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   const regenerate = value.regenerate === true;
+  // Only modes that are configured on the server can be used, whether the client asked for one or the conversation has one saved.
+  const { models: availableModels, reasoningModes } = getModelOptions();
+  const availableModes = availableModels.map((option) => option.id);
+  if (requestedModel && !availableModes.includes(requestedModel.data)) return NextResponse.json({ error: "That model isn't available." }, { status: 400 });
 
   const { data: conversation, error: conversationError } = await supabase.from("conversations").select("id,selected_model").eq("id", parsedId.data).maybeSingle();
   if (conversationError) return NextResponse.json({ error: safeError }, { status: 503 });
-  const selected = conversation && modelSchema.safeParse(conversation.selected_model);
-  if (!conversation || !selected?.success) return NextResponse.json({ error: "Conversation unavailable." }, { status: 404 });
+  if (!conversation) return NextResponse.json({ error: "Conversation unavailable." }, { status: 404 });
+  const mode = requestedModel?.data ?? resolveMode(conversation.selected_model, availableModes);
+  if (!mode) return NextResponse.json({ error: safeError }, { status: 503 });
+  const reasoning = requestedReasoning?.data ?? defaultReasoningEffort;
+  if (!reasoningAllowed(reasoning, mode, reasoningModes)) return NextResponse.json({ error: "Reasoning isn't available for this model." }, { status: 400 });
   // The user-message lookup and the context read are independent, so they run together; context is trimmed to this message below.
   const [{ data: userMessage, error: messageError }, { data: recent, error: readError }] = await Promise.all([
     supabase.from("messages").select("id,position,content").eq("id", parsedMessageId.data).eq("conversation_id", conversation.id).eq("role", "user").eq("status", "complete").maybeSingle(),
@@ -76,7 +88,7 @@ async function respond(request: Request) {
     return !error && Boolean(data);
   };
   let responseStream: ReadableStream<Uint8Array>;
-  try { responseStream = await chatProvider.stream(selected.data, context, aborter.signal); }
+  try { responseStream = await chatProvider.stream(mode, context, aborter.signal, { reasoning }); }
   catch (error) {
     if (error instanceof Error && /^(Missing AI configuration:|Unsupported AI_PROVIDER)/.test(error.message)) console.error(error.message);
     try { await persist(clientCancelled ? "Response stopped." : "Response unavailable.", clientCancelled ? "interrupted" : "error"); }

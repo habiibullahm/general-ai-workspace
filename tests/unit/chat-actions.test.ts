@@ -1,18 +1,33 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { createClient } = vi.hoisted(() => ({ createClient: vi.fn() }));
+const { createClient, modelOptions } = vi.hoisted(() => ({ createClient: vi.fn(), modelOptions: vi.fn() }));
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: createClient }));
+vi.mock("@/lib/ai/registry", () => ({ getModelOptions: modelOptions }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import { addUserMessageAction, createConversationAction, deleteConversationAction, editLastUserMessageAction, renameConversationAction, updateConversationModelAction } from "../../app/actions/chat";
 
 describe("chat server action input boundaries", () => {
-  beforeEach(() => createClient.mockReset());
+  beforeEach(() => { createClient.mockReset(); modelOptions.mockReset().mockReturnValue({ models: [{ id: "Fast" }, { id: "Balanced" }], reasoningModes: [] }); });
 
   it("rejects unsupported models before opening an authenticated client", async () => {
     await expect(createConversationAction("default")).resolves.toEqual({ error: "Choose a valid response mode." });
     await expect(updateConversationModelAction("5e9bdcca-9205-4fea-a773-13952bb78c44", "unknown")).resolves.toEqual({ error: "Choose a valid response mode." });
     expect(createClient).not.toHaveBeenCalled();
+  });
+
+  it("rejects a mode that is not configured on the server before opening an authenticated client", async () => {
+    await expect(createConversationAction("Reasoning")).resolves.toEqual({ error: "That model isn't available." });
+    await expect(updateConversationModelAction("5e9bdcca-9205-4fea-a773-13952bb78c44", "Reasoning")).resolves.toEqual({ error: "That model isn't available." });
+    expect(createClient).not.toHaveBeenCalled();
+  });
+
+  it("saves a configured mode on the conversation", async () => {
+    const eq = vi.fn(() => ({ select: () => ({ maybeSingle: async () => ({ data: { id: "c" }, error: null }) }) }));
+    const update = vi.fn(() => ({ eq }));
+    createClient.mockResolvedValue({ auth: { getUser: async () => ({ data: { user: { id: "owner" } }, error: null }) }, from: () => ({ update }) });
+    await expect(updateConversationModelAction("5e9bdcca-9205-4fea-a773-13952bb78c44", "Fast")).resolves.toEqual({});
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ selected_model: "Fast" }));
   });
 
   it("rejects malformed IDs and invalid message/title content before database access", async () => {
