@@ -167,3 +167,39 @@ test.describe("layout has no horizontal overflow", () => {
     }
   }
 });
+
+test.describe("conversation scrolling", () => {
+  const atBottom = (page: Page) => page.evaluate(() => { const box = document.querySelector(".conversation-scroll")!; return box.scrollHeight - box.scrollTop - box.clientHeight; });
+
+  test("opens at the latest message, and a sent message is brought into view even when the reader had scrolled up", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 520 });
+    await page.goto("/preview");
+    await page.getByRole("button", { name: "Open conversation menu" }).click();
+    await page.getByRole("button", { name: "Debouncing a search box" }).first().click();
+    await expect(page.locator(".code-block")).toBeVisible();
+    // The conversation is taller than the screen, and it opens at its end rather than at the first message.
+    expect(await page.evaluate(() => { const box = document.querySelector(".conversation-scroll")!; return box.scrollHeight > box.clientHeight; })).toBe(true);
+    expect(await atBottom(page)).toBeLessThanOrEqual(2);
+
+    await page.evaluate(() => { document.querySelector(".conversation-scroll")!.scrollTop = 0; });
+    await expect.poll(() => atBottom(page)).toBeGreaterThan(100);
+    await page.getByRole("textbox", { name: "Message Nibie" }).fill("A message sent from the top of a long chat");
+    await page.getByRole("button", { name: "Send message" }).click();
+    const sent = page.locator(".message-row.user").filter({ hasText: "A message sent from the top of a long chat" });
+    await expect(sent).toBeInViewport();
+    expect(await atBottom(page)).toBeLessThanOrEqual(2);
+  });
+
+  test("does not pull the reader back down while they are reading earlier text", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 520 });
+    await page.goto("/preview");
+    await page.getByRole("button", { name: "Open conversation menu" }).click();
+    await page.getByRole("button", { name: "Debouncing a search box" }).first().click();
+    await expect(page.locator(".code-block")).toBeVisible();
+    await page.evaluate(() => { document.querySelector(".conversation-scroll")!.scrollTop = 0; });
+    // Unrelated updates (opening a menu, changing the model) must not move the reader.
+    await page.getByRole("button", { name: /^Model:/ }).click();
+    await page.getByRole("menuitemradio", { name: /Fast/ }).click();
+    expect(await page.evaluate(() => document.querySelector(".conversation-scroll")!.scrollTop)).toBe(0);
+  });
+});

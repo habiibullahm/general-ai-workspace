@@ -74,7 +74,7 @@ describe("chat server action input boundaries", () => {
     const signedIn = { getClaims: async () => ({ data: { claims: { sub: "owner" } }, error: null }) };
     function stack(append: { data: unknown; error: unknown }) {
       const calls: string[] = [];
-      const removed = vi.fn(async (..._args: unknown[]) => ({ error: null }));
+      const removed = vi.fn<(...args: unknown[]) => Promise<{ error: null }>>(async () => ({ error: null }));
       const insert = vi.fn((row: unknown) => { calls.push("insert"); return { select: () => ({ single: async () => ({ data: conversation, error: null }) }), row }; });
       const rpc = vi.fn(() => { calls.push("append"); return { single: async () => append }; });
       const client = { auth: signedIn, from: vi.fn(() => ({ insert, delete: () => ({ eq: (...args: unknown[]) => { calls.push("delete"); return { then: (resolve: (v: unknown) => unknown) => removed(...args).then(resolve) }; } }) })), rpc };

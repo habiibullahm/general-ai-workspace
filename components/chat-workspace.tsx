@@ -13,6 +13,7 @@ import { useStableCallback } from "@/components/use-stable-callback";
 import type { ConversationSummary, PersistedMessage } from "@/lib/chat/read";
 import type { ChatModel } from "@/lib/chat/validation";
 import { resolveMode, type ModelOption } from "@/lib/chat/models";
+import { isNearBottom } from "@/lib/chat/scroll";
 import { readChatSse } from "@/lib/ai/sse";
 import { classifyStreamFailure, isRecoverySettled, latestReplyFailed, needsServerCheck, recoveryMaxPolls, recoveryPollMs } from "@/lib/chat/recovery";
 
@@ -65,6 +66,10 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
   const composerRef = useRef<ComposerHandle>(null);
   const latestData = useRef(initialData);
   useLayoutEffect(() => { latestData.current = initialData; });
+  // The conversation follows new content while the reader is at the bottom (see lib/chat/scroll.ts).
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const followRef = useRef(true);
+  const handleScroll = useStableCallback(() => { if (scrollRef.current) followRef.current = isNearBottom(scrollRef.current); });
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const closeMenuRef = useRef<HTMLButtonElement>(null);
   const drawerRef = useRef<HTMLElement>(null);
@@ -87,6 +92,10 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
   // Message actions stay locked until the server confirms how the last response ended, so they cannot collide with it.
   const messageActionsLocked = controlsDisabled || recovering;
   const initial = email.slice(0, 1).toUpperCase();
+  useLayoutEffect(() => {
+    const box = scrollRef.current;
+    if (box && followRef.current) box.scrollTop = box.scrollHeight;
+  }, [messages, activeId, loadingConversation]);
 
   // The navigation the user asked for has landed once the URL matches it; from then on the URL is the source of truth again.
   if (pendingId !== undefined && conversationParam === pendingId) setPendingId(undefined);
@@ -141,7 +150,7 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
   const openConversation = useStableCallback((id: string | null) => {
     if (busy.current && !streamController.current) return;
     streamController.current?.abort();
-    setNotice(""); setDrawerOpen(false); setEditingId(null); setRecovery(null);
+    setNotice(""); setDrawerOpen(false); setEditingId(null); setRecovery(null); followRef.current = true;
     const item = shownConversations.find((conversation) => conversation.id === id);
     if (item) setMode(modeFor(item.selected_model));
     if (preview) setPreviewActiveId(id);
@@ -210,7 +219,7 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
   const submitMessage = useStableCallback(async (content: string) => {
     if (!content || busy.current || recovery) return;
     busy.current = true;
-    setSending(true); setNotice(""); setEditingId(null);
+    setSending(true); setNotice(""); setEditingId(null); followRef.current = true;
     let id = activeId;
     try {
       if (preview) {
@@ -264,14 +273,14 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
   function repliesAfter(message: PersistedMessage) { return messages.filter((item) => item.role === "assistant" && item.position > message.position).map((item) => item.id); }
   const regenerate = useStableCallback(async () => {
     if (preview || busy.current || recovery || !activeId || !lastUser) return;
-    busy.current = true; setSending(true); setNotice(""); setEditingId(null);
+    busy.current = true; setSending(true); setNotice(""); setEditingId(null); followRef.current = true;
     try { await generate(activeId, lastUser.id, { regenerate: true, replaceIds: repliesAfter(lastUser) }); }
     finally { busy.current = false; setSending(false); }
   });
   const saveEdit = useStableCallback(async (messageId: string, content: string) => {
     if (preview || busy.current || recovery || !activeId || !lastUser || lastUser.id !== messageId || !content || content === lastUser.content) return;
     const id = activeId; const target = lastUser; const replaceIds = repliesAfter(target);
-    busy.current = true; setSending(true); setNotice("");
+    busy.current = true; setSending(true); setNotice(""); followRef.current = true;
     try {
       const result = await editLastUserMessageAction(id, target.id, content);
       if (result.error || !result.data) { setNotice(result.error ?? "Your edit couldn't be saved."); return; }
@@ -328,7 +337,7 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
 
   return <main className="chat-workspace"><ChatSidebar {...sidebarProps} />{drawerOpen && <div className="mobile-drawer"><button className="drawer-scrim" aria-label="Dismiss menu backdrop" onClick={closeDrawer} /><ChatSidebar {...sidebarProps} mobile drawerRef={drawerRef} closeMenuRef={closeMenuRef} /></div>}
     <section className="chat-main" aria-label="Chat workspace"><header className="chat-header"><button ref={menuButtonRef} className="icon-button mobile-menu-button" aria-label="Open conversation menu" onClick={() => setDrawerOpen(true)}><Menu size={21} /></button><div className="header-model"><span className="model-dot" /><span>Nibie</span><span className="header-divider">/</span><span className="header-context">A little room to think</span></div><button className="header-new-chat" disabled={controlsDisabled} onClick={newChat}><Plus size={16} /><span>New chat</span></button></header>
-      <div className={`conversation-scroll ${messages.length || loadingConversation ? "has-messages" : "is-empty"}`}>{loadingConversation ? <div className="message-list conversation-skeleton" role="status" aria-busy="true" aria-label="Loading conversation"><div className="skeleton-line is-short" /><div className="skeleton-line" /><div className="skeleton-line" /><div className="skeleton-line is-medium" /></div> : messages.length ? <div className="message-list" aria-live="polite">{messages.map((message) => <MessageRow key={message.id} message={message} initial={initial} isLast={message.id === lastMessage?.id} isLastUser={message.id === lastUser?.id} canMutate={!preview} disabled={messageActionsLocked} editing={editingId === message.id} onRegenerate={regenerate} onStartEdit={startEdit} onCancelEdit={cancelEdit} onSaveEdit={saveEdit} />)}{notice && <p className="local-notice" role="status">{notice}</p>}</div> : <div className="welcome-panel">{notice && <p className="local-notice" role="status">{notice}</p>}<div className="welcome-icon"><BrandMark /></div><p className="welcome-eyebrow">A LITTLE ROOM TO THINK</p><h1>What’s on your mind?</h1><p className="welcome-copy">A fresh page for ideas, questions, and whatever you’re working through.</p><div className="suggestion-list" aria-label="Suggestions">{suggestions.map((suggestion) => <button key={suggestion} onClick={() => { composerRef.current?.set(suggestion); composerRef.current?.focus(); }}>{suggestion}<span>↗</span></button>)}</div></div>}</div>
+      <div ref={scrollRef} onScroll={handleScroll} className={`conversation-scroll ${messages.length || loadingConversation ? "has-messages" : "is-empty"}`}>{loadingConversation ? <div className="message-list conversation-skeleton" role="status" aria-busy="true" aria-label="Loading conversation"><div className="skeleton-line is-short" /><div className="skeleton-line" /><div className="skeleton-line" /><div className="skeleton-line is-medium" /></div> : messages.length ? <div className="message-list" aria-live="polite">{messages.map((message) => <MessageRow key={message.id} message={message} initial={initial} isLast={message.id === lastMessage?.id} isLastUser={message.id === lastUser?.id} canMutate={!preview} disabled={messageActionsLocked} editing={editingId === message.id} onRegenerate={regenerate} onStartEdit={startEdit} onCancelEdit={cancelEdit} onSaveEdit={saveEdit} />)}{notice && <p className="local-notice" role="status">{notice}</p>}</div> : <div className="welcome-panel">{notice && <p className="local-notice" role="status">{notice}</p>}<div className="welcome-icon"><BrandMark /></div><p className="welcome-eyebrow">A LITTLE ROOM TO THINK</p><h1>What’s on your mind?</h1><p className="welcome-copy">A fresh page for ideas, questions, and whatever you’re working through.</p><div className="suggestion-list" aria-label="Suggestions">{suggestions.map((suggestion) => <button key={suggestion} onClick={() => { composerRef.current?.set(suggestion); composerRef.current?.focus(); }}>{suggestion}<span>↗</span></button>)}</div></div>}</div>
       <ChatComposer ref={composerRef} sending={sending || recovering} streaming={streaming} models={models} mode={mode} reasoningModes={reasoningModes} reasoning={reasoning} caption={caption} onSubmit={submitMessage} onStop={stopStream} onModeChange={changeMode} onReasoningChange={setReasoning} onAttach={attach} />
     </section></main>;
 }
