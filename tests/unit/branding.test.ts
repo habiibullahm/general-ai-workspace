@@ -18,7 +18,7 @@ describe("brand slot", () => {
     expect(getWordmark({ NEXT_PUBLIC_APP_NAME: "Nibie" })).toBe("nibie");
   });
 
-  it("ships without a final logo so the temporary monogram is used", () => {
-    expect(brandAssets.mark).toBeNull();
+  it("points the mark slot at the logo asset", () => {
+    expect(brandAssets.mark).toBe("/brand/mark.svg");
   });
 });
