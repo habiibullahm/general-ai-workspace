@@ -24,6 +24,11 @@ describe("getAuthenticatedUser", () => {
     await expect(getAuthenticatedUser(clientWith({ data: { claims: { sub: "user-123" } }, error: new Error("invalid signature") }))).resolves.toBeNull();
   });
 
+  it("fails closed when verifying the token throws, for example when the signing keys cannot be fetched", async () => {
+    const client = { auth: { getClaims: vi.fn().mockRejectedValue(new Error("jwks fetch failed")) } };
+    await expect(getAuthenticatedUser(client)).resolves.toBeNull();
+  });
+
   it("returns null when the claims carry no usable subject", async () => {
     for (const sub of [undefined, "", 42]) {
       await expect(getAuthenticatedUser(clientWith({ data: { claims: { sub } }, error: null }))).resolves.toBeNull();

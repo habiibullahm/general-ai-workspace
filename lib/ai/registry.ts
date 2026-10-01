@@ -60,7 +60,8 @@ export function resolveLogicalModel(model: ChatModel, config: AiConfig): string 
   return resolved;
 }
 
-// What the UI may offer: only configured modes. Reads environment names only; never exposes the provider, its URL or its key.
+// What the UI may offer: only configured modes. The configured model name is shown next to each mode on purpose (secondary text);
+// the provider, its base URL and its key are never part of this.
 export function getModelOptions(env: Env = process.env): { models: ModelOption[]; reasoningModes: ChatModel[] } {
   const configured = configuredModels(env);
   const models = modeOrder.filter((mode) => configured[mode]).map((mode) => ({ id: mode, label: mode, model: configured[mode]! }));
