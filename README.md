@@ -1,6 +1,6 @@
 # Nibie
 
-A provider-independent general-purpose AI chat workspace. The repository and infrastructure project remain named `general-ai-workspace`; product requirements and implementation guidance are maintained in [`docs/`](docs/).
+A provider-independent general-purpose AI chat workspace. Product requirements and implementation guidance are maintained in [`docs/`](docs/).
 
 ## Local development
 
