@@ -111,7 +111,8 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
     const settled = pending.every((message) => initialData?.messages.some((saved) => saved.id === message.id && saved.status !== "streaming" && (message.role !== "user" || saved.content === message.content)));
     if (settled && removedIds.every((id) => !initialData?.messages.some((saved) => saved.id === id))) {
       setServerData(initialData);
-      setMode(modeFor(initialData?.conversations.find((item) => item.id === initialData.activeId)?.selected_model));
+      // A new chat has no saved mode. Adopting the empty server payload must not wipe the choice the user just made.
+      if (initialData?.activeId) setMode(modeFor(initialData.conversations.find((item) => item.id === initialData.activeId)?.selected_model));
       setLocalMessages({});
       setRemovedIds([]);
       setLocalConversations([]);
