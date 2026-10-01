@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { ChatWorkspace } from "@/components/chat-workspace";
 import type { ModelOption } from "@/lib/chat/models";
+import { requestTime } from "@/lib/chat/groups";
 
 export const dynamic = "force-dynamic";
 
@@ -13,5 +14,5 @@ const previewModels: ModelOption[] = [
 
 export default function PreviewPage() {
   if (process.env.NODE_ENV === "production") notFound();
-  return <ChatWorkspace email="preview@nibie.local" preview models={previewModels} reasoningModes={["Reasoning"]} />;
+  return <ChatWorkspace email="preview@nibie.local" preview models={previewModels} reasoningModes={["Reasoning"]} renderedAt={requestTime()} />;
 }

@@ -36,7 +36,7 @@ const mockConversations: Conversation[] = [
 const noModels: ModelOption[] = [];
 const noReasoningModes: ChatModel[] = [];
 
-export function ChatWorkspace({ email, initialData, preview = false, models = noModels, reasoningModes = noReasoningModes }: { email: string; initialData?: WorkspaceData; preview?: boolean; models?: ModelOption[]; reasoningModes?: ChatModel[] }) {
+export function ChatWorkspace({ email, initialData, preview = false, models = noModels, reasoningModes = noReasoningModes, renderedAt }: { email: string; initialData?: WorkspaceData; preview?: boolean; models?: ModelOption[]; reasoningModes?: ChatModel[]; renderedAt?: number }) {
   const router = useRouter();
   const conversationParam = useSearchParams().get("conversation");
   const conversations = preview ? mockConversations : (initialData?.conversations ?? noConversations);
@@ -333,7 +333,7 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
 
   const history = activeId ? activeId : null;
   const caption = preview ? "Mock workspace · Messages stay in this tab and are not saved." : streaming ? "Nibie is responding · You can stop at any time." : "Your conversations are saved to your account.";
-  const sidebarProps = { conversations: shownConversations, activeId: history, busy: controlsDisabled, preview, email, onClose: closeDrawer, onOpen: openConversation, onNewChat: newChat, onRename: rename, onDelete: remove };
+  const sidebarProps = { conversations: shownConversations, activeId: history, busy: controlsDisabled, preview, email, renderedAt, onClose: closeDrawer, onOpen: openConversation, onNewChat: newChat, onRename: rename, onDelete: remove };
 
   return <main className="chat-workspace"><ChatSidebar {...sidebarProps} />{drawerOpen && <div className="mobile-drawer"><button className="drawer-scrim" aria-label="Dismiss menu backdrop" onClick={closeDrawer} /><ChatSidebar {...sidebarProps} mobile drawerRef={drawerRef} closeMenuRef={closeMenuRef} /></div>}
     <section className="chat-main" aria-label="Chat workspace"><header className="chat-header"><button ref={menuButtonRef} className="icon-button mobile-menu-button" aria-label="Open conversation menu" onClick={() => setDrawerOpen(true)}><Menu size={21} /></button><div className="header-model"><span className="model-dot" /><span>Nibie</span><span className="header-divider">/</span><span className="header-context">A little room to think</span></div><button className="header-new-chat" disabled={controlsDisabled} onClick={newChat}><Plus size={16} /><span>New chat</span></button></header>

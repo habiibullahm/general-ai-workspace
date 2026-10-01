@@ -203,3 +203,25 @@ test.describe("conversation scrolling", () => {
     expect(await page.evaluate(() => document.querySelector(".conversation-scroll")!.scrollTop)).toBe(0);
   });
 });
+
+test.describe("hydration", () => {
+  // Smoke check: the pages must hydrate without console errors for viewers far from the server's time zone. The history headings
+  // (Today / Yesterday / Older) depend on the viewer's clock and zone, so server and browser must agree while hydrating, otherwise React
+  // discards the server HTML and re-renders everything on the client. The zone boundaries themselves are covered in tests/unit/chat-groups.test.ts.
+  for (const timezoneId of ["Pacific/Kiritimati", "Pacific/Pago_Pago", "Asia/Jakarta"]) {
+    test(`the workspace and sign-in pages hydrate without errors in ${timezoneId}`, async ({ browser }) => {
+      const context = await browser.newContext({ timezoneId });
+      const page = await context.newPage();
+      const problems: string[] = [];
+      page.on("console", (message) => { if (message.type() === "error") problems.push(message.text().split("\n")[0]); });
+      page.on("pageerror", (error) => problems.push(error.message.split("\n")[0]));
+      for (const path of ["/login", "/signup", "/preview"]) {
+        await page.goto(path);
+        await page.waitForSelector("main");
+        await page.waitForTimeout(500);
+      }
+      expect(problems).toEqual([]);
+      await context.close();
+    });
+  }
+});
