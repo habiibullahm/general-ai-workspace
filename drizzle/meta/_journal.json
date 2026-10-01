@@ -15,6 +15,13 @@
       "when": 1790796313801,
       "tag": "0001_chat_generation_safety",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790833384174,
+      "tag": "0002_last_turn_controls",
+      "breakpoints": true
     }
   ]
 }

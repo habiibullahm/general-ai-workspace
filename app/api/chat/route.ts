@@ -27,10 +27,11 @@ async function respond(request: Request) {
 
   let body: unknown;
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Invalid request." }, { status: 400 }); }
-  const value = body as { conversationId?: unknown; userMessageId?: unknown };
+  const value = body as { conversationId?: unknown; userMessageId?: unknown; regenerate?: unknown };
   const parsedId = validateConversationId(value?.conversationId);
   const parsedMessageId = validateConversationId(value?.userMessageId);
-  if (!parsedId.success || !parsedMessageId.success) return NextResponse.json({ error: "Invalid request." }, { status: 400 });
+  if (!parsedId.success || !parsedMessageId.success || (value.regenerate !== undefined && typeof value.regenerate !== "boolean")) return NextResponse.json({ error: "Invalid request." }, { status: 400 });
+  const regenerate = value.regenerate === true;
 
   const { data: conversation, error: conversationError } = await supabase.from("conversations").select("id,selected_model").eq("id", parsedId.data).maybeSingle();
   if (conversationError) return NextResponse.json({ error: safeError }, { status: 503 });
@@ -49,7 +50,7 @@ async function respond(request: Request) {
     characters += row.content.length;
     return characters <= 64_000;
   }).reverse().map((row) => ({ role: row.role as "user" | "assistant", content: row.content }));
-  const { data: assistant, error: claimError } = await supabase.rpc("claim_assistant_message", {
+  const { data: assistant, error: claimError } = await supabase.rpc(regenerate ? "regenerate_assistant_message" : "claim_assistant_message", {
     p_conversation_id: conversation.id, p_user_message_id: parsedMessageId.data,
   }).single<{ id: string; position: number; content: string; status: string; replayed: boolean }>();
   if (claimError || !assistant) {

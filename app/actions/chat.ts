@@ -75,6 +75,28 @@ export async function addUserMessageAction(id: unknown, content: unknown, messag
   }
 }
 
+export async function editLastUserMessageAction(id: unknown, messageId: unknown, content: unknown): Promise<ChatActionResult<{ id: string; position: number }>> {
+  const parsedId = validateConversationId(id);
+  const parsedMessageId = validateConversationId(messageId);
+  const parsedContent = validateMessage(content);
+  if (!parsedId.success) return { error: "Choose a valid conversation." };
+  if (!parsedMessageId.success) return { error: "Choose a valid message." };
+  if (!parsedContent.success) return { error: "Messages must be between 1 and 20,000 characters." };
+  try {
+    const { supabase } = await authenticatedClient();
+    const { data, error } = await supabase.rpc("edit_last_user_message", {
+      p_conversation_id: parsedId.data, p_message_id: parsedMessageId.data, p_content: parsedContent.data,
+    }).single<{ id: string; position: number }>();
+    if (error?.code === "PT409") return { error: "Only the latest message can be edited while no response is running. Refresh and try again." };
+    if (error?.code === "PT404") return { error: "That message is no longer available." };
+    if (error || !data) return failure();
+    revalidatePath("/");
+    return { data };
+  } catch {
+    return { error: "Your session has expired or the service is unavailable. Please try again." };
+  }
+}
+
 export async function renameConversationAction(id: unknown, title: unknown): Promise<ChatActionResult> {
   const parsedId = validateConversationId(id);
   const parsedTitle = validateTitle(title);

@@ -52,3 +52,34 @@ test("mobile chat workspace uses a keyboard-accessible conversation drawer", asy
   await expect(menu).toHaveCount(0);
   await expect(page.getByRole("textbox", { name: "Message Nibie" })).toBeVisible();
 });
+
+test("assistant replies render safe Markdown with working copy controls", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.goto("/preview");
+  await page.getByRole("button", { name: "Debouncing a search box" }).click();
+  await expect(page.getByRole("heading", { name: "Example" })).toBeVisible();
+  await expect(page.getByRole("listitem").filter({ hasText: "Use wait to tune responsiveness." })).toBeVisible();
+  const link = page.getByRole("link", { name: "MDN guide" });
+  await expect(link).toHaveAttribute("href", "https://developer.mozilla.org/docs/Glossary/Debounce");
+  await expect(link).toHaveAttribute("rel", /noopener/);
+  await expect(link).toHaveAttribute("target", "_blank");
+  const block = page.locator(".code-block");
+  await expect(block).toContainText("export function debounce");
+  await expect(block.locator(".code-block-header")).toContainText("ts");
+
+  const copyCode = block.getByRole("button", { name: "Copy ts code block" });
+  await copyCode.click();
+  await expect(copyCode).toContainText("Copied");
+  const code = await page.evaluate(() => navigator.clipboard.readText());
+  expect(code.startsWith("export function debounce")).toBe(true);
+  expect(code).toContain("timer = setTimeout(");
+  expect(code.endsWith("}")).toBe(true);
+  expect(code).not.toContain("```");
+
+  await page.getByRole("button", { name: "Copy response" }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("## Example");
+
+  // The mock workspace has no server, so last-turn mutation controls stay hidden here.
+  await expect(page.getByRole("button", { name: "Regenerate" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Edit" })).toHaveCount(0);
+});
