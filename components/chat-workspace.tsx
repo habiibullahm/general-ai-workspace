@@ -16,6 +16,7 @@ import type { ConversationSummary, PersistedMessage } from "@/lib/chat/read";
 import type { ChatModel } from "@/lib/chat/validation";
 import type { ModelOption } from "@/lib/chat/models";
 import { decideRestoredConversation } from "@/lib/chat/preferences";
+import { clearStoredConversationReference } from "@/lib/privacy/local-state";
 import { modelForComposer } from "@/lib/preferences/model";
 import { defaultUserPreferences, type UserPreferences } from "@/lib/preferences/types";
 import { followAfterSending, followStreamedContent, isNearBottom, trackNearBottom } from "@/lib/chat/scroll";
@@ -45,7 +46,9 @@ const noReasoningModes: ChatModel[] = [];
 export function ChatWorkspace({ email, initialData, preview = false, models = noModels, reasoningModes = noReasoningModes, renderedAt, preferences, preferencesError = null }: { email: string; initialData?: WorkspaceData; preview?: boolean; models?: ModelOption[]; reasoningModes?: ChatModel[]; renderedAt?: number; preferences?: UserPreferences; preferencesError?: string | null }) {
   const router = useRouter();
   const conversationParam = useSearchParams().get("conversation");
-  const conversations = preview ? mockConversations : (initialData?.conversations ?? noConversations);
+  // Server history captured at delete-all. It stays hidden until a newer server payload arrives, so deleted chats do not flash back.
+  const [droppedServerHistory, setDroppedServerHistory] = useState<WorkspaceData | null>(null);
+  const conversations = preview ? mockConversations : initialData && initialData === droppedServerHistory ? noConversations : (initialData?.conversations ?? noConversations);
   const [localMessages, setLocalMessages] = useState<Record<string, PersistedMessage[]>>({});
   const [removedIds, setRemovedIds] = useState<string[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -236,6 +239,23 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
     composerRef.current?.clear();
     openConversation(null);
   });
+  const conversationsDeleted = useStableCallback(() => {
+    streamController.current?.abort();
+    busy.current = false;
+    setSending(false);
+    setStreaming(false);
+    clearStoredConversationReference(typeof window === "undefined" ? null : window.localStorage);
+    setDroppedServerHistory(latestData.current ?? null);
+    setLocalConversations([]);
+    setLocalMessages({});
+    setRemovedIds([]);
+    setEditingId(null);
+    setRecovery(null);
+    setNotice("");
+    setSettingsOpen(false);
+    openConversation(null);
+    router.refresh();
+  });
 
   // Streams one assistant response for a saved user message. The caller owns the busy guard, which is released here.
   async function generate(id: string, userMessageId: string, options: GenerateOptions = {}) {
@@ -417,6 +437,6 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
       <div ref={scrollRef} onScroll={handleScroll} className={`conversation-scroll ${messages.length || loadingConversation ? "has-messages" : "is-empty"}`}>{loadingConversation ? <div className="message-list conversation-skeleton" role="status" aria-busy="true" aria-label="Loading conversation"><div className="skeleton-line is-short" /><div className="skeleton-line" /><div className="skeleton-line" /><div className="skeleton-line is-medium" /></div> : messages.length ? <div className="message-list" aria-live="polite">{messages.map((message) => <MessageRow key={message.id} message={message} initial={initial} isLast={message.id === lastMessage?.id} isLastUser={message.id === lastUser?.id} canMutate={!preview} disabled={messageActionsLocked} editing={editingId === message.id} onRegenerate={regenerate} onStartEdit={startEdit} onCancelEdit={cancelEdit} onSaveEdit={saveEdit} />)}{notice && <p className="local-notice" role="status">{notice}</p>}</div> : <div className="welcome-panel">{notice && <p className="local-notice" role="status">{notice}</p>}<div className="welcome-icon"><BrandMark /></div><p className="welcome-eyebrow">A LITTLE ROOM TO THINK</p><h1>What’s on your mind?</h1><p className="welcome-copy">A fresh page for ideas, questions, and whatever you’re working through.</p><div className="suggestion-list" aria-label="Suggestions">{suggestions.map((suggestion) => <button key={suggestion} onClick={() => { composerRef.current?.set(suggestion); composerRef.current?.focus(); }}>{suggestion}<span>↗</span></button>)}</div></div>}</div>
       <ChatComposer ref={composerRef} sending={sending || recovering} streaming={streaming} models={models} mode={mode} reasoningModes={reasoningModes} reasoning={reasoning} caption={caption} onSubmit={submitMessage} onStop={stopStream} onModeChange={changeMode} onReasoningChange={setReasoning} onAttach={attach} />
     </section>
-    {settingsOpen ? <SettingsDialog preview={preview} models={models} initialPreferences={savedPreferences} initialError={preferencesError} onClose={closeSettings} onSaved={setSavedPreferences} /> : null}
+    {settingsOpen ? <SettingsDialog preview={preview} busy={controlsDisabled} models={models} initialPreferences={savedPreferences} initialError={preferencesError} onClose={closeSettings} onSaved={setSavedPreferences} onConversationsDeleted={conversationsDeleted} /> : null}
   </main>;
 }

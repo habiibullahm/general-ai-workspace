@@ -48,7 +48,7 @@ test("authenticated provider response survives refresh, reopen, and sign-in agai
     await page.goto("/");
     await page.getByRole("button", { name: title!, exact: true }).click();
     await expect(page.locator(".message-row.assistant .markdown").last()).toHaveText(answer!);
-    await page.getByRole("button", { name: "Sign out", exact: true }).click();
+    await page.getByRole("button", { name: "Sign out everywhere", exact: true }).click();
     await expect(page).toHaveURL((url) => url.pathname === "/login");
     await login();
     await page.goto(conversationUrl);

@@ -1,6 +1,6 @@
 "use client";
 
-import type { ComponentType } from "react";
+import { DataPrivacyPanel } from "@/components/data-privacy-dialog";
 import { useChatFlag } from "@/components/use-chat-preferences";
 import { SettingsChoice, SettingsSection, SettingsTextField } from "@/components/settings/settings-section";
 import type { ModelOption } from "@/lib/chat/models";
@@ -12,7 +12,10 @@ export type SettingsSectionProps = {
   preferences: UserPreferences;
   models: ModelOption[];
   disabled: boolean;
+  preview?: boolean;
+  busy?: boolean;
   onChange: (patch: PreferencePatch) => void;
+  onConversationsDeleted?: () => void;
 };
 
 const languageOptions = [
@@ -85,8 +88,8 @@ export function PersonalizationSettingsSection({ preferences, disabled, onChange
   </SettingsSection>;
 }
 
-export const DataSettingsSection: ComponentType<SettingsSectionProps> = function DataSettingsSection() {
-  return <SettingsSection title="Data & Privacy" description="Your conversations belong to your account.">
-    <p className="settings-note">Export and deleting every conversation will be added here. Sign out stays in the account area and still signs out of every device.</p>
+export function DataSettingsSection({ preview = false, busy = false, onConversationsDeleted }: SettingsSectionProps) {
+  return <SettingsSection title="Data & Privacy" description="Your conversations belong to your account. Export and deletion stay limited to that account.">
+    <DataPrivacyPanel preview={preview} busy={busy} onDeleted={() => onConversationsDeleted?.()} />
   </SettingsSection>;
 }

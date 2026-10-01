@@ -4,6 +4,7 @@ import postgres, { type TransactionSql } from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { assertSafeIntegrationDatabaseUrl } from "../../lib/config/test-database";
+import { buildConversationExport, type ExportConversationRow, type ExportMessageRow } from "../../lib/privacy/export";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 describe("Supabase row-level security", () => {
@@ -311,5 +312,55 @@ describe("Supabase row-level security", () => {
     await expect(asUser(userA, (tx) => tx`update public.user_preferences set preferred_name = ${"x".repeat(81)}`)).rejects.toThrow();
     const [still] = await asUser(userA, (tx) => tx`select preferred_language, default_model, preferred_name from public.user_preferences`);
     expect(still).toEqual({ preferred_language: "id", default_model: "fast", preferred_name: "Habib" });
+  });
+
+  it("keeps export and delete-all inside the caller, cascades messages, and leaves the account and preferences", async () => {
+    const userC = randomUUID();
+    const ownId = randomUUID();
+    const ownMessage = randomUUID();
+    await sql`insert into auth.users (id) values (${userC})`;
+    await asUser(userA, async (tx) => {
+      await tx`insert into public.conversations (id, user_id, title, selected_model) values (${ownId}, ${userA}, 'Export me', 'Reasoning')`;
+      await tx`insert into public.messages (id, conversation_id, user_id, role, content, status, position) values (${ownMessage}, ${ownId}, ${userA}, 'user', 'only mine', 'complete', 1)`;
+    });
+
+    const visibleConversations = await asUser(userA, (tx) => tx`select id, title, selected_model, created_at, updated_at from public.conversations`);
+    const visibleMessages = await asUser(userA, (tx) => tx`select id, conversation_id, role, content, status, position, created_at, reply_to_message_id from public.messages`);
+    const exported = buildConversationExport({
+      conversations: [...visibleConversations] as ExportConversationRow[],
+      messages: [...visibleMessages] as ExportMessageRow[],
+      exportedAt: "2026-10-02T00:00:00.000Z",
+    });
+    expect(exported?.exportVersion).toBe(1);
+    expect(exported?.conversations.some((item) => item.id === ownId && item.selectedModel === "Reasoning" && item.messages.some((entry) => entry.content === "only mine"))).toBe(true);
+    const serialized = JSON.stringify(exported);
+    expect(serialized).not.toContain(conversationB);
+    expect(serialized).not.toContain("private message");
+    expect(serialized).not.toContain(userB);
+
+    const emptyConversations = await asUser(userC, (tx) => tx`select id, title, selected_model, created_at, updated_at from public.conversations`);
+    const emptyMessages = await asUser(userC, (tx) => tx`select id, conversation_id, role, content, status, position, created_at, reply_to_message_id from public.messages`);
+    expect(buildConversationExport({
+      conversations: [...emptyConversations] as ExportConversationRow[],
+      messages: [...emptyMessages] as ExportMessageRow[],
+      exportedAt: "2026-10-02T00:00:00.000Z",
+    })).toEqual({
+      product: "Nibie",
+      exportVersion: 1,
+      exportedAt: "2026-10-02T00:00:00.000Z",
+      conversations: [],
+    });
+
+    const crossDelete = await asUser(userA, (tx) => tx`delete from public.conversations where id = ${conversationB} returning id`);
+    expect(crossDelete).toHaveLength(0);
+    const removed = await asUser(userA, (tx) => tx`delete from public.conversations where user_id = (select auth.uid()) returning id`);
+    expect(removed.map((row) => row.id)).toContain(ownId);
+    expect(removed.map((row) => row.id)).not.toContain(conversationB);
+
+    expect(await sql`select id from public.messages where id = ${ownMessage}`).toHaveLength(0);
+    expect(await sql`select content from public.messages where id = ${messageB}`).toEqual([{ content: "private message" }]);
+    expect(await sql`select title from public.conversations where id = ${conversationB}`).toEqual([{ title: "B conversation" }]);
+    expect(await sql`select id from public.users where id = ${userA}`).toEqual([{ id: userA }]);
+    expect(await sql`select preferred_name from public.user_preferences where user_id = ${userA}`).toEqual([{ preferred_name: "Habib" }]);
   });
 });
