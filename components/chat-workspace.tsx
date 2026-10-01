@@ -14,7 +14,7 @@ import { readChatSse } from "@/lib/ai/sse";
 
 type Conversation = ConversationSummary & { messages: PersistedMessage[] };
 type WorkspaceData = { conversations: ConversationSummary[]; messages: PersistedMessage[]; activeId: string | null; error: string | null };
-type GenerateOptions = { regenerate?: boolean; replaceIds?: string[] };
+type GenerateOptions = { regenerate?: boolean; replaceIds?: string[]; placeholderId?: string };
 const suggestions = ["Help me think through an idea", "Write something with me", "Explain a new topic"];
 const noConversations: ConversationSummary[] = [];
 // Streamed text is applied in small batches so a long reply is not re-parsed as Markdown for every network chunk.
@@ -129,6 +129,7 @@ export function ChatWorkspace({ email, initialData, preview = false }: { email: 
       const text = buffer; const target = assistantId; buffer = ""; shown = true;
       setLocalMessages((items) => ({ ...items, [id]: (items[id] ?? []).map((message) => message.id === target ? { ...message, content: message.content + text } : message) }));
     };
+    const clearPlaceholder = () => { if (options.placeholderId) setLocalMessages((items) => items[id]?.some((row) => row.id === options.placeholderId) ? { ...items, [id]: items[id].filter((row) => row.id !== options.placeholderId) } : items); };
     setSending(false); setStreaming(true);
     streamController.current = controller;
     try {
@@ -139,7 +140,8 @@ export function ChatWorkspace({ email, initialData, preview = false }: { email: 
           assistantId = data.id;
           // The server has replaced the previous reply once it announces the new one, so hide the old row only now.
           if (options.replaceIds?.length) setRemovedIds((ids) => [...ids, ...options.replaceIds!]);
-          setLocalMessages((items) => ({ ...items, [id]: [...(items[id] ?? []), { id: data.id, role: "assistant", content: "", position: data.position, status: "streaming" }] }));
+          const reply: PersistedMessage = { id: data.id, role: "assistant", content: "", position: data.position, status: "streaming" };
+          setLocalMessages((items) => { const rows = items[id] ?? []; return { ...items, [id]: options.placeholderId && rows.some((row) => row.id === options.placeholderId) ? rows.map((row) => row.id === options.placeholderId ? reply : row) : [...rows, reply] }; });
         }
         if (data.type === "delta") { buffer += data.text; if (!shown) flush(); else if (!flushTimer) flushTimer = setTimeout(flush, streamFlushMs); }
         if (data.type === "status") { flush(); setLocalMessages((items) => ({ ...items, [id]: (items[id] ?? []).map((message) => message.id === assistantId ? { ...message, content: message.content || "Response stopped.", status: data.status } : message) })); }
@@ -150,9 +152,10 @@ export function ChatWorkspace({ email, initialData, preview = false }: { email: 
       flush();
       const interrupted = controller.signal.aborted;
       if (assistantId) setLocalMessages((items) => ({ ...items, [id]: (items[id] ?? []).map((message) => message.id === assistantId ? { ...message, content: message.content || (interrupted ? "Response stopped." : "Response unavailable."), status: interrupted ? "interrupted" : "error" } : message) }));
+      if (!assistantId) clearPlaceholder();
       if (!interrupted) setNotice("Nibie couldn't complete that response. Please try again.");
       router.refresh();
-    } finally { if (flushTimer) clearTimeout(flushTimer); streamController.current = null; busy.current = false; setSending(false); setStreaming(false); }
+    } finally { clearPlaceholder(); if (flushTimer) clearTimeout(flushTimer); streamController.current = null; busy.current = false; setSending(false); setStreaming(false); }
   }
   const submitMessage = useStableCallback(async (content: string) => {
     if (!content || busy.current) return;
@@ -169,23 +172,34 @@ export function ChatWorkspace({ email, initialData, preview = false }: { email: 
         setPreviewActiveId(id); composerRef.current?.clear(); setNotice("Your message is shown in this local preview. Replies are not connected yet.");
         return;
       }
+      // The same submission keeps the same message id, so a retry after a failure can never save the message twice.
+      const messageId = submission.current && submission.current.content === content && submission.current.conversationId === id ? submission.current.id : crypto.randomUUID();
+      submission.current = { id: messageId, content, conversationId: id };
+      const placeholderId = `pending-${messageId}`;
+      const basePosition = lastMessage?.position ?? 0;
+      const withoutPending = (rows: PersistedMessage[] = []) => rows.filter((row) => row.id !== messageId && row.id !== placeholderId);
+      // Show the message and a thinking row immediately; the server confirms (or we roll back and restore the draft) below.
+      const key = id ?? "";
+      setLocalMessages((items) => ({ ...items, [key]: [...withoutPending(items[key]), { id: messageId, role: "user", content, position: basePosition + 1, status: "complete" }, { id: placeholderId, role: "assistant", content: "", position: basePosition + 2, status: "streaming" }] }));
+      composerRef.current?.clear();
+      const rollback = (message: string, from: string) => { setLocalMessages((items) => ({ ...items, [from]: withoutPending(items[from]) })); composerRef.current?.restore(content); setNotice(message); };
       if (!id) {
         const created = await createConversationAction(mode);
-        if (created.error || !created.data) { setNotice(created.error ?? "Conversation couldn't be created."); return; }
+        if (created.error || !created.data) { rollback(created.error ?? "Conversation couldn't be created.", key); return; }
         id = created.data.id;
+        submission.current = { id: messageId, content, conversationId: id };
         setLocalConversations((items) => [created.data!, ...items]);
-        setLocalMessages((items) => ({ ...items, [id!]: [] }));
+        setLocalMessages((items) => { const { "": rows = [], ...rest } = items; return { ...rest, [id!]: rows }; });
         setPendingId(id);
         router.push(`/?conversation=${encodeURIComponent(id)}`);
       }
-      if (!submission.current || submission.current.content !== content || submission.current.conversationId !== id) submission.current = { id: crypto.randomUUID(), content, conversationId: id };
-      const result = await addUserMessageAction(id, content, submission.current.id);
-      if (result.error || !result.data) { setNotice(result.error ?? "Message couldn't be saved."); return; }
+      const result = await addUserMessageAction(id, content, messageId);
+      if (result.error || !result.data) { rollback(result.error ?? "Message couldn't be saved.", id); return; }
       submission.current = null;
-      setLocalMessages((items) => ({ ...items, [id!]: [{ id: result.data!.id, role: "user", content, position: result.data!.position, status: "complete" }] }));
+      const saved = result.data;
+      setLocalMessages((items) => ({ ...items, [id!]: (items[id!] ?? []).map((row) => row.id === messageId ? { ...row, position: saved.position } : row.id === placeholderId ? { ...row, position: saved.position + 1 } : row) }));
       setLocalConversations((items) => items.map((item) => item.id === id ? { ...item, title: item.title === "New chat" ? content.slice(0, 42) + (content.length > 42 ? "…" : "") : item.title, updated_at: new Date().toISOString() } : item));
-      composerRef.current?.clear();
-      await generate(id, result.data.id);
+      await generate(id, messageId, { placeholderId });
     } catch {
       setNotice("Nibie couldn't complete that response. Please try again.");
       if (!preview) router.refresh();

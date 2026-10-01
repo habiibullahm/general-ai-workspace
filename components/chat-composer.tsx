@@ -4,7 +4,7 @@ import { memo, useEffect, useImperativeHandle, useRef, useState, type KeyboardEv
 import { ArrowUp, ChevronDown, FilePlus2, X } from "lucide-react";
 import type { ChatModel } from "@/lib/chat/validation";
 
-export type ComposerHandle = { set: (text: string) => void; clear: () => void; focus: () => void };
+export type ComposerHandle = { set: (text: string) => void; restore: (text: string) => void; clear: () => void; focus: () => void };
 type Props = {
   ref?: Ref<ComposerHandle>;
   sending: boolean;
@@ -21,7 +21,7 @@ type Props = {
 export const ChatComposer = memo(function ChatComposer({ ref, sending, streaming, mode, caption, onSubmit, onStop, onModeChange, onAttach }: Props) {
   const [draft, setDraft] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  useImperativeHandle(ref, () => ({ set: setDraft, clear: () => setDraft(""), focus: () => textareaRef.current?.focus() }), []);
+  useImperativeHandle(ref, () => ({ set: setDraft, restore: (text) => setDraft((current) => current || text), clear: () => setDraft(""), focus: () => textareaRef.current?.focus() }), []);
 
   useEffect(() => {
     const element = textareaRef.current;
