@@ -5,7 +5,8 @@ Handoff date: 2026-10-01. Further implementation was stopped at the user's reque
 ## PROJECT
 
 - Product: Nibie, a persistent general-purpose AI chat workspace.
-- Repository: https://github.com/habiibullahm/general-ai-workspace
+- Canonical repository: https://github.com/habiibullahm/nibie-ai
+- Previous URL: https://github.com/habiibullahm/general-ai-workspace redirects to the same repository. Both names were verified to resolve to the same GitHub repository ID during handoff; `origin` is normalized to the canonical URL.
 - Active implementation branch: `feat/m4-ai-streaming`.
 - Integration baseline: `master` at `130eea2ffce749f2769706d81144b18b6a175480`.
 - M4 implementation checkpoint: `c1d1656d01b1120db1530cac848e0ce8ab7e6efa`.
