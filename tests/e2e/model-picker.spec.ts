@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Request } from "@playwright/test";
+import { removeConversation } from "./remove-conversation";
 
 // Authenticated checks for the model picker and the reasoning control against a real (or local) workspace.
 // A skip never counts as acceptance. The reasoning part adapts to the server's configuration: the control must be absent unless the
@@ -25,17 +26,6 @@ async function chooseModel(page: Page, name: string) {
   await modelButton(page).click();
   await page.getByRole("menuitemradio", { name: new RegExp(name) }).click();
   await expect(modelButton(page, name)).toBeVisible();
-}
-
-async function removeConversation(page: Page, url: string | undefined) {
-  if (!url) return;
-  await page.unrouteAll({ behavior: "ignoreErrors" });
-  await page.goto(url);
-  const remove = page.locator(".history-entry").filter({ has: page.locator(".history-item.is-active") }).getByRole("button", { name: /^Delete / });
-  if (await remove.count()) {
-    page.once("dialog", (dialog) => dialog.accept());
-    await remove.click();
-  }
 }
 
 test("the chosen model is sent with the request, is saved on the conversation, and survives a refresh", async ({ page }) => {

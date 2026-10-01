@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { removeConversation } from "./remove-conversation";
 
 // Authenticated, real-provider regression checks for the Retry / terminal-event lifecycle.
 // Reported symptom: after Retry the UI showed "Nibie couldn't complete that response", yet a reload showed the full,
@@ -27,18 +28,6 @@ async function startChat(page: Page, prompt: string) {
   await page.getByRole("button", { name: "New chat", exact: true }).first().click();
   await expect(page.getByRole("heading", { name: "What’s on your mind?" })).toBeVisible();
   await page.getByRole("textbox", { name: "Message Nibie" }).fill(prompt);
-}
-
-async function removeConversation(page: Page, url: string | undefined) {
-  const target = url ?? (page.url().includes("conversation=") ? page.url() : undefined);
-  if (!target) return;
-  await page.unrouteAll({ behavior: "ignoreErrors" });
-  await page.goto(target);
-  const remove = page.locator(".history-entry").filter({ has: page.locator(".history-item.is-active") }).getByRole("button", { name: /^Delete / });
-  if (await remove.count()) {
-    page.once("dialog", (dialog) => dialog.accept());
-    await remove.click();
-  }
 }
 
 test("a stream that drops before its terminal event reconciles to the saved reply", async ({ page }) => {
