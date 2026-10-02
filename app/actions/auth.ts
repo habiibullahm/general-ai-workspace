@@ -3,10 +3,22 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getPublicAppUrl } from "@/lib/config/app-url";
+import { getSupabasePublicConfig } from "@/lib/config/supabase";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { credentialsSchema, type AuthActionState } from "@/lib/auth/validation";
 import { SIGN_OUT_SCOPE } from "@/lib/privacy/sign-out";
 import { chatPath } from "@/lib/routes";
+
+function allowedOAuthUrl(value: string, supabaseUrl: string) {
+  try {
+    const target = new URL(value);
+    const allowed = new URL(supabaseUrl);
+    if (target.origin !== allowed.origin || !target.pathname.startsWith("/auth/v1/")) return null;
+    return target.toString();
+  } catch {
+    return null;
+  }
+}
 
 function readCredentials(formData: FormData) {
   const result = credentialsSchema.safeParse({
@@ -33,6 +45,34 @@ export async function signInAction(
 
   revalidatePath("/", "layout");
   redirect(chatPath);
+}
+
+export async function signInWithGoogleAction(
+  _previousState: AuthActionState | null,
+  formData: FormData,
+): Promise<AuthActionState> {
+  if (!(formData instanceof FormData)) return { error: "Google sign-in is temporarily unavailable. Please try again later." };
+
+  let redirectUrl: string | null = null;
+
+  try {
+    const supabase = await createSupabaseServerClient();
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: new URL("/auth/callback", getPublicAppUrl()).toString(),
+        skipBrowserRedirect: true,
+        queryParams: { prompt: "select_account" },
+      },
+    });
+    const url = !error && data.url ? allowedOAuthUrl(data.url, getSupabasePublicConfig().url) : null;
+    if (!url) return { error: "Google sign-in is temporarily unavailable. Please try again later." };
+    redirectUrl = url;
+  } catch {
+    return { error: "Google sign-in is temporarily unavailable. Please try again later." };
+  }
+
+  redirect(redirectUrl);
 }
 
 export async function signUpAction(

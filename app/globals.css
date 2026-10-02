@@ -321,7 +321,14 @@ button:focus-visible, a:focus-visible, select:focus-visible, textarea:focus-visi
 .auth-card { width: 100%; max-width: 384px; padding: 28px; border: 1px solid var(--border); border-radius: 16px; background: var(--bg-raised); box-shadow: var(--shadow-sm); }
 .auth-title { margin: 32px 0 0; color: var(--text); font-size: 24px; font-weight: 500; letter-spacing: -.02em; }
 .auth-subtitle { margin: 8px 0 0; color: var(--text-3); font-size: 14px; line-height: 1.6; }
-.auth-form { display: flex; flex-direction: column; gap: 16px; margin-top: 28px; }
+.auth-providers { display: flex; flex-direction: column; gap: 12px; margin-top: 28px; }
+.auth-google { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 42px; padding: 10px 16px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--bg-app); color: var(--text); font-size: 14px; font-weight: 500; cursor: pointer; }
+.auth-google svg { flex: none; }
+.auth-google:hover:not(:disabled) { background: var(--hover); }
+.auth-google:disabled { cursor: not-allowed; opacity: .6; }
+.auth-divider { display: flex; align-items: center; gap: 12px; margin: 18px 0 0; color: var(--text-4); font-size: 12px; }
+.auth-divider::before, .auth-divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.auth-form { display: flex; flex-direction: column; gap: 16px; margin-top: 18px; }
 .auth-field { display: flex; flex-direction: column; gap: 6px; }
 .auth-field label { color: var(--text-2); font-size: 14px; font-weight: 500; }
 .auth-field input { width: 100%; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--bg-app); color: var(--text); font-size: 14px; outline: none; }
