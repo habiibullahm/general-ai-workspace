@@ -1,12 +1,15 @@
 import type { Metadata, Viewport } from "next";
 import { ThemeSync } from "@/components/theme-switcher";
 import { getProductName } from "@/lib/config/branding";
+import { publicMetadataBase } from "@/lib/config/public-metadata";
 import { themeInitScript } from "@/lib/theme";
 import "./globals.css";
 
 const productName = getProductName();
+const metadataBase = publicMetadataBase();
 
 export const metadata: Metadata = {
+  ...(metadataBase ? { metadataBase } : {}),
   title: { default: productName, template: `%s · ${productName}` },
   applicationName: productName,
   description: "A calm workspace for everyday thinking.",

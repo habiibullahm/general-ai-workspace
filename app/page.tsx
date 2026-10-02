@@ -1,48 +1,47 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
 import { LandingPage } from "@/components/landing-page";
-import { getPublicAppUrl } from "@/lib/config/app-url";
-import { legacyConversationPath } from "@/lib/routes";
+import { absolutePublicUrl, publicShareImage } from "@/lib/config/public-metadata";
 import "./landing.css";
 
 const title = "Nibie — A quieter place to think with AI";
 const description = "Nibie is a personal AI workspace for thinking, writing, coding, exploring ideas, and getting work done.";
 
-// Dedicated Nibie Open Graph artwork is intentionally unset until a share image exists.
-const landingShareImage: string | undefined = undefined;
-
-function landingOrigin() {
-  if (!process.env.NEXT_PUBLIC_APP_URL && process.env.NODE_ENV === "production") return undefined;
-  return getPublicAppUrl();
-}
-
-const origin = landingOrigin();
-const pageUrl = origin ? `${origin}/` : "/";
+// Absolute only when the public origin is known. A missing production origin must not become localhost.
+const canonical = absolutePublicUrl("/");
+const image = publicShareImage();
 
 export const metadata: Metadata = {
-  metadataBase: origin ? new URL(origin) : undefined,
   title: { absolute: title },
   description,
-  alternates: { canonical: pageUrl },
+  ...(canonical ? { alternates: { canonical } } : {}),
   openGraph: {
     title,
     description,
-    url: pageUrl,
+    ...(canonical ? { url: canonical } : {}),
     siteName: "Nibie",
     type: "website",
-    ...(landingShareImage ? { images: [{ url: landingShareImage }] } : {}),
+    ...(image ? { images: [image] } : {}),
   },
   twitter: {
-    card: "summary_large_image",
+    card: image ? "summary_large_image" : "summary",
     title,
     description,
-    ...(landingShareImage ? { images: [landingShareImage] } : {}),
+    ...(image ? { images: [image] } : {}),
   },
 };
 
-export default async function HomePage({ searchParams }: { searchParams: Promise<{ conversation?: string }> }) {
-  const params = await searchParams;
-  const legacy = legacyConversationPath(params.conversation);
-  if (legacy) redirect(legacy);
-  return <LandingPage />;
+// Legacy /?conversation=<id> bookmarks redirect in proxy.ts, so this page does not read the request.
+export const dynamic = "error";
+
+export default function HomePage() {
+  return <>
+    {canonical ? <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify({
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      name: "Nibie",
+      description,
+      url: canonical,
+    }) }} /> : null}
+    <LandingPage />
+  </>;
 }
