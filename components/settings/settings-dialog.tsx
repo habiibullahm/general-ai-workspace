@@ -10,6 +10,7 @@ import type { PreferencePatch, UserPreferences } from "@/lib/preferences/types";
 
 type Props = {
   initialSection?: SettingsSectionId;
+  email: string;
   preview: boolean;
   busy?: boolean;
   models: ModelOption[];
@@ -24,7 +25,7 @@ function samePreferences(current: UserPreferences, patch: PreferencePatch) {
   return Object.entries(patch).every(([key, value]) => current[key as keyof PreferencePatch] === value);
 }
 
-export function SettingsDialog({ initialSection = "general", preview, busy = false, models, initialPreferences, initialError, onClose, onSaved, onConversationsDeleted }: Props) {
+export function SettingsDialog({ initialSection = "general", email, preview, busy = false, models, initialPreferences, initialError, onClose, onSaved, onConversationsDeleted }: Props) {
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
   const edited = useRef(false);
@@ -150,7 +151,7 @@ export function SettingsDialog({ initialSection = "general", preview, busy = fal
         <div className="settings-content" role="tabpanel" id={`settings-panel-${active.id}`} aria-labelledby={`settings-tab-${active.id}`}>
           {loadError ? <p className="settings-error" role="alert">{loadError}{preview ? null : <button type="button" onClick={() => void reload()}>Try again</button>}</p> : null}
           {saveError ? <p className="settings-error" role="alert">{saveError}</p> : null}
-          <ActiveSection preferences={preferences} models={models} disabled={loading || saving} preview={preview} busy={busy} onChange={(patch) => void change(patch)} onConversationsDeleted={onConversationsDeleted} />
+          <ActiveSection preferences={preferences} models={models} email={email} disabled={loading || saving} preview={preview} busy={busy} onChange={(patch) => void change(patch)} onConversationsDeleted={onConversationsDeleted} />
           <p className="settings-status" role="status">{loading ? "Loading settings…" : status}</p>
         </div>
       </div>
