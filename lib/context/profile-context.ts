@@ -59,7 +59,7 @@ export function profileReason(categories: ProfileCategory[]) {
 
 const summaryUnused: ContextSourceDiagnostic = { type: "thread_summary", label: "Thread summary", state: "not_used", reason: "Not needed yet." };
 
-export function previewContextDiagnostics(input: { preferences: UserPreferences; preferenceReadFailed: boolean; hasEarlierMessages: boolean; room?: RoomContextInput | null }): ContextDiagnostics {
+export function previewContextDiagnostics(input: { preferences: UserPreferences; preferenceReadFailed: boolean; hasEarlierMessages: boolean; room?: RoomContextInput | null; selectedFileCount?: number }): ContextDiagnostics {
   const pieces = input.preferenceReadFailed ? [] : profilePieces(input.preferences);
   const profile: ContextSourceDiagnostic = pieces.length
     ? { type: "profile", label: "Your profile", state: "included", reason: profileReason(pieces.flatMap((piece) => piece.categories)) }
@@ -73,6 +73,15 @@ export function previewContextDiagnostics(input: { preferences: UserPreferences;
     sources.splice(1, 0, roomParts.length
       ? { type: "room", label: "This room", state: "included", reason: roomReason(roomParts.flatMap((piece) => piece.categories)) }
       : { type: "room", label: "This room", state: "not_used", reason: "No room instructions or brief are set." });
+  }
+  if (input.selectedFileCount) {
+    const roomIndex = sources.findIndex((source) => source.type === "room");
+    sources.splice(roomIndex >= 0 ? roomIndex + 1 : 1, 0, {
+      type: "file",
+      label: "File context",
+      state: "included",
+      reason: input.selectedFileCount === 1 ? "Selected room file" : "Selected room files",
+    });
   }
   return { sources, recentMessageCount: input.hasEarlierMessages ? 1 : 0 };
 }

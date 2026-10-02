@@ -77,6 +77,41 @@ export const roomBriefs = pgTable(
   ],
 );
 
+// Explicit room source material. Extracted text is untrusted data, never an authorization input.
+export const roomFiles = pgTable(
+  "room_files",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    roomId: uuid("room_id").notNull(),
+    originalName: text("original_name").notNull(),
+    mimeType: text("mime_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    storagePath: text("storage_path").notNull(),
+    extractedText: text("extracted_text").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("room_files_id_user_id_key").on(table.id, table.userId),
+    unique("room_files_storage_path_key").on(table.storagePath),
+    foreignKey({
+      name: "room_files_room_owner_fk",
+      columns: [table.roomId, table.userId],
+      foreignColumns: [rooms.id, rooms.userId],
+    }).onDelete("cascade"),
+    index("room_files_user_room_idx").on(table.userId, table.roomId, table.createdAt),
+    check("room_files_name_length", sql`char_length(${table.originalName}) between 1 and 120 and ${table.originalName} = btrim(${table.originalName})`),
+    check("room_files_mime_allowlist", sql`${table.mimeType} in ('text/plain', 'text/markdown', 'text/csv')`),
+    check("room_files_size_bounds", sql`${table.sizeBytes} between 1 and 5242880`),
+    check("room_files_text_bounds", sql`char_length(${table.extractedText}) between 1 and 24000`),
+    check(
+      "room_files_owner_path",
+      sql`${table.storagePath} like (${table.userId})::text || '/' || (${table.roomId})::text || '/' || (${table.id})::text || '/%'`,
+    ),
+  ],
+);
+
 export const conversations = pgTable(
   "conversations",
   {

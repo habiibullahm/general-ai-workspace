@@ -2,6 +2,7 @@
 
 import { useState, useSyncExternalStore } from "react";
 import { Plus } from "lucide-react";
+import { RoomFiles } from "@/components/room-files";
 import type { ConversationSummary, RoomSummary } from "@/lib/chat/read";
 import { roomBriefFields, type RoomBriefFields } from "@/lib/rooms/types";
 
@@ -17,6 +18,7 @@ type Props = {
   onSaveRoom: (patch: { name: string; description: string | null; instructions: string | null }) => Promise<SaveResult>;
   onSaveBrief: (brief: RoomBriefFields) => Promise<SaveResult>;
   onDelete: () => Promise<SaveResult>;
+  preview?: boolean;
 };
 
 function briefFromRoom(room: RoomSummary): RoomBriefFields {
@@ -29,7 +31,7 @@ function briefFromRoom(room: RoomSummary): RoomBriefFields {
   };
 }
 
-export function RoomDetail({ room, threads, busy, onOpenThread, onNewThread, onSaveRoom, onSaveBrief, onDelete }: Props) {
+export function RoomDetail({ room, threads, busy, onOpenThread, onNewThread, onSaveRoom, onSaveBrief, onDelete, preview = false }: Props) {
   const mounted = useSyncExternalStore(noopSubscribe, () => true, () => false);
   const [name, setName] = useState(room.name);
   const [description, setDescription] = useState(room.description ?? "");
@@ -94,6 +96,7 @@ export function RoomDetail({ room, threads, busy, onOpenThread, onNewThread, onS
       {roomBriefFields.map((field) => <label className="room-field" key={field.key}><span>{field.label}</span><textarea value={brief[field.key] ?? ""} maxLength={500} rows={3} disabled={locked} onChange={(event) => setBrief((current) => ({ ...current, [field.key]: event.target.value }))} /></label>)}
       <button type="button" className="privacy-button" disabled={locked} onClick={() => void saveBrief()}>{saving === "brief" ? "Saving…" : "Save brief"}</button>
     </section>
+    <RoomFiles roomId={room.id} disabled={locked} preview={preview} />
     <section className="room-threads" aria-label="Threads">
       <div className="room-threads-head"><h2>Threads</h2><button type="button" className="privacy-button" disabled={locked} onClick={onNewThread}><Plus size={15} aria-hidden="true" /> New thread</button></div>
       {threads.length ? <ul>{threads.map((thread) => <li key={thread.id}><button type="button" onClick={() => onOpenThread(thread.id)}>{thread.title}</button></li>)}</ul> : <p>No threads in this room yet.</p>}

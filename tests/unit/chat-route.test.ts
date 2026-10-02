@@ -437,6 +437,49 @@ describe("POST /api/chat", () => {
         expect(logged).toHaveBeenCalledWith("preference_read_failed");
       } finally { logged.mockRestore(); }
     });
+
+    it("includes only an explicitly selected room file and hides another user's file", async () => {
+      const fileId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+      const outcomes = [
+        { data: { id: "user-message", position: 1, content: "hello" }, error: null },
+        { data: [{ role: "user", content: "hello", status: "complete", position: 1 }], error: null },
+        { data: { id: assistantId }, error: null },
+      ];
+      const from = vi.fn((table: string) => {
+        if (table === "user_preferences") return query(preferenceResult);
+        if (table === "conversations") return query({ data: { id: "conversation", selected_model: "Balanced", room_id: "room" }, error: null });
+        if (table === "rooms") return query({ data: { name: "Lab", instructions: null }, error: null });
+        if (table === "room_briefs") return query({ data: null, error: null });
+        if (table === "room_files") return query({ data: [{ id: fileId, original_name: "notes.txt", extracted_text: "The launch code is blue." }], error: null });
+        if (table === "messages") return query(outcomes.shift()!);
+        return query({ data: null, error: null });
+      });
+      createClient.mockResolvedValue({ auth: { getClaims: async () => ({ data: { claims: { sub: "owner" } }, error: null }) }, from, rpc: claim });
+      stream.mockResolvedValue(sseBody("Hello"));
+      const response = await POST(new Request("http://localhost/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ conversationId: "5e9bdcca-9205-4fea-a773-13952bb78c44", userMessageId: "b79e56e1-b479-46f4-97d3-30b2e22be90e", fileIds: [fileId] }) }));
+      expect(response.status).toBe(200);
+      const body = await response.text();
+      expect(body).toContain("File context");
+      expect(body).not.toContain("The launch code is blue.");
+      const messages = stream.mock.calls[0][1] as { role: string; content: string }[];
+      expect(messages[0].content).not.toContain("launch code");
+      expect(messages[1].content).toContain("The launch code is blue.");
+      expect(messages.at(-1)?.content).toBe("hello");
+
+      const hidden = vi.fn((table: string) => {
+        if (table === "user_preferences") return query(preferenceResult);
+        if (table === "conversations") return query({ data: { id: "conversation", selected_model: "Balanced", room_id: "room" }, error: null });
+        if (table === "rooms") return query({ data: { name: "Lab", instructions: null }, error: null });
+        if (table === "room_briefs") return query({ data: null, error: null });
+        if (table === "room_files") return query({ data: [], error: null });
+        return query({ data: { id: "user-message", position: 1, content: "hello" }, error: null });
+      });
+      createClient.mockResolvedValue({ auth: { getClaims: async () => ({ data: { claims: { sub: "owner" } }, error: null }) }, from: hidden, rpc: claim });
+      const denied = await POST(new Request("http://localhost/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ conversationId: "5e9bdcca-9205-4fea-a773-13952bb78c44", userMessageId: "b79e56e1-b479-46f4-97d3-30b2e22be90e", fileIds: [fileId] }) }));
+      expect(denied.status).toBe(400);
+      expect(stream).toHaveBeenCalledTimes(1);
+      expect(claim).toHaveBeenCalledTimes(1);
+    });
   });
 });
 
@@ -460,7 +503,7 @@ function validRequest(signal?: AbortSignal) {
 
 function query(result: unknown, onWrite?: (write: unknown) => void) {
   const builder: Record<string, unknown> = {};
-  for (const method of ["select", "eq", "lte", "order", "limit"]) builder[method] = () => builder;
+  for (const method of ["select", "eq", "lte", "order", "limit", "in"]) builder[method] = () => builder;
   builder.eq = vi.fn(() => builder);
   builder.insert = (write: unknown) => { onWrite?.(write); return builder; };
   builder.update = (write: unknown) => { onWrite?.(write); return builder; };

@@ -1,9 +1,10 @@
 import { CONTEXT_POLICY_TEXT, CONTEXT_POLICY_VERSION } from "@/lib/context/context-policy";
 import { ContextBuildError, type BuildContextInput, type ContextBlock, type ContextDiagnostics, type ContextPlan, type ContextSourceDiagnostic, type ThreadMessage } from "@/lib/context/context-types";
+import { renderFileContext } from "@/lib/context/file-context";
 import { profilePieces, profileReason, type ProfilePiece } from "@/lib/context/profile-context";
 import { roomPieces, roomReason, type RoomPiece } from "@/lib/context/room-context";
 import { renderThreadSummary, resolveThreadSummary, selectThreadMessages } from "@/lib/context/thread-context";
-import { budgetLimits, estimateTokens, PROTECTED_RECENT_COUNT, ROOM_TOKEN_CAP, SUMMARY_TOKEN_CAP } from "@/lib/context/token-budget";
+import { budgetLimits, estimateTokens, FILE_TOKEN_CAP, PROTECTED_RECENT_COUNT, ROOM_TOKEN_CAP, SUMMARY_TOKEN_CAP } from "@/lib/context/token-budget";
 
 function block(partial: ContextBlock): ContextBlock {
   return partial;
@@ -67,6 +68,11 @@ export function buildContext(input: BuildContextInput): ContextPlan {
     } else droppedRoom.push(piece);
   }
 
+  // Pins, when a later branch adds them, belong between the room block and this file block.
+  const requestedFiles = input.files?.length ? input.files : null;
+  const renderedFiles = requestedFiles ? renderFileContext(requestedFiles, Math.min(FILE_TOKEN_CAP, remaining.value)) : null;
+  if (renderedFiles?.text) remaining.value -= estimateTokens(renderedFiles.text);
+
   let summaryText = "";
   let summaryIncluded = false;
   let summaryDroppedForBudget = false;
@@ -83,16 +89,20 @@ export function buildContext(input: BuildContextInput): ContextPlan {
   const olderFit = summaryIncluded ? { included: [] as ThreadMessage[], dropped: olderMessages } : takeNewest(olderMessages, remaining);
   const dialogue = [...olderFit.included, ...protectedFit.included, current];
   const droppedMessages = summaryIncluded ? protectedFit.dropped : [...olderFit.dropped, ...protectedFit.dropped];
-  const truncated = droppedMessages.length > 0 || droppedPieces.length > 0 || droppedRoom.length > 0 || summaryDroppedForBudget;
+  const truncated = droppedMessages.length > 0 || droppedPieces.length > 0 || droppedRoom.length > 0 || Boolean(renderedFiles?.truncated) || summaryDroppedForBudget;
 
   const profileText = includedPieces.map((piece) => piece.text).join("\n");
   const roomText = includedRoom.map((piece) => piece.text).join("\n\n");
+  const fileText = renderedFiles?.text ?? "";
   const blocks: ContextBlock[] = [
     block({ id: "core", authority: "policy", priority: 1, required: true, text: CONTEXT_POLICY_TEXT, tokenEstimate: coreTokens, included: true, exclusionReason: null }),
     block({ id: "profile", authority: "untrusted_data", priority: 4, required: false, text: profileText, tokenEstimate: profileText ? estimateTokens(profileText) : 0, included: Boolean(profileText), exclusionReason: profileText ? null : input.preferenceReadFailed ? "read_failed" : droppedPieces.length && !includedPieces.length ? "budget" : "defaults_only" }),
   ];
   if (hasRoom) {
     blocks.push(block({ id: "room", authority: "untrusted_data", priority: 5, required: false, text: roomText, tokenEstimate: roomText ? estimateTokens(roomText) : 0, included: Boolean(roomText), exclusionReason: roomText ? null : droppedRoom.length ? "budget" : "not_needed" }));
+  }
+  if (requestedFiles) {
+    blocks.push(block({ id: "file", authority: "untrusted_data", priority: 6, required: false, text: fileText, tokenEstimate: fileText ? estimateTokens(fileText) : 0, included: Boolean(fileText), exclusionReason: fileText ? null : "budget" }));
   }
   blocks.push(block({ id: "thread_summary", authority: "untrusted_data", priority: 6, required: false, text: summaryText, tokenEstimate: summaryText ? estimateTokens(summaryText) : 0, included: summaryIncluded, exclusionReason: summaryIncluded ? null : summaryDroppedForBudget ? "budget" : resolved.exclusionReason }));
   for (const message of dialogue) {
@@ -125,11 +135,20 @@ export function buildContext(input: BuildContextInput): ContextPlan {
       ? { type: "room", label: "This room", state: "included", reason: roomReason(includedRoom.flatMap((piece) => piece.categories)) }
       : { type: "room", label: "This room", state: "not_used", reason: droppedRoom.length ? "Not used for this reply." : "No room instructions or brief are set." }
     : null;
+  const fileDiagnostic: ContextSourceDiagnostic | null = requestedFiles
+    ? fileText
+      ? { type: "file", label: "File context", state: "included", reason: requestedFiles.length === 1 ? "Selected room file" : "Selected room files" }
+      : { type: "file", label: "File context", state: "not_used", reason: "Not used for this reply." }
+    : null;
 
   let diagnostics: ContextDiagnostics;
   try {
     const sources = [profileDiagnostic, recentDiagnostic, summaryDiagnostic];
     if (roomDiagnostic) sources.splice(1, 0, roomDiagnostic);
+    if (fileDiagnostic) {
+      const roomIndex = sources.findIndex((source) => source.type === "room");
+      sources.splice(roomIndex >= 0 ? roomIndex + 1 : 1, 0, fileDiagnostic);
+    }
     diagnostics = { sources, recentMessageCount: dialogue.length };
   } catch {
     diagnostics = { sources: [], recentMessageCount: dialogue.length };
