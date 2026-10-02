@@ -13,9 +13,10 @@ describe("getProductName", () => {
 });
 
 describe("brand slot", () => {
-  it("sets the wordmark in lowercase from the product name", () => {
-    expect(getWordmark({})).toBe("nibie");
-    expect(getWordmark({ NEXT_PUBLIC_APP_NAME: "Nibie" })).toBe("nibie");
+  it("sets the wordmark with a capital first letter from the product name", () => {
+    expect(getWordmark({})).toBe("Nibie");
+    expect(getWordmark({ NEXT_PUBLIC_APP_NAME: "Nibie" })).toBe("Nibie");
+    expect(getWordmark({ NEXT_PUBLIC_APP_NAME: "nIBIE" })).toBe("Nibie");
   });
 
   it("points the mark slot at the logo asset", () => {
