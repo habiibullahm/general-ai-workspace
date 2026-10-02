@@ -324,6 +324,24 @@
 }
 .landing-trust li { padding: 26px 0; border-top: 1px solid var(--border-soft); }
 .landing-trust h3 { margin: 0; color: var(--text); font-size: 16px; font-weight: 550; letter-spacing: -.02em; line-height: 1.45; }
+.landing-privacy-link { margin: 28px 0 0; font-size: 14px; }
+.landing-privacy-link a { color: var(--text-2); text-underline-offset: 3px; }
+.landing-privacy-link a:hover { color: var(--text); }
+
+.landing-document { padding-top: 64px; padding-bottom: 96px; }
+.landing-document h1, .landing-document h2 {
+  margin: 0;
+  color: var(--text);
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 400;
+  letter-spacing: -.04em;
+}
+.landing-document h1 { max-width: 10em; font-size: clamp(42px, 5.4vw, 72px); line-height: 1.04; }
+.landing-document h2 { margin-top: 44px; max-width: 22em; font-size: clamp(28px, 3vw, 36px); line-height: 1.15; }
+.landing-document p { max-width: 40rem; margin: 14px 0 0; color: var(--text-2); font-size: 16px; line-height: 1.65; }
+.landing-document ul { max-width: 40rem; margin: 14px 0 0; padding-left: 1.15rem; color: var(--text-2); font-size: 16px; line-height: 1.65; }
+.landing-document li + li { margin-top: 8px; }
+.landing-document a { color: var(--text); }
 
 .landing-final { padding-top: 108px; padding-bottom: 96px; }
 .landing-final h2 { max-width: 10em; font-size: clamp(42px, 5.4vw, 72px); line-height: 1.04; }

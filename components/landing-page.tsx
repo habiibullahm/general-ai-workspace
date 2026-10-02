@@ -232,6 +232,7 @@ export function LandingPage() {
         <ul className="landing-trust">
           {boundaries.map((item) => <li key={item}><h3>{item}</h3></li>)}
         </ul>
+        <p className="landing-privacy-link"><Link href="/privacy">Privacy details</Link></p>
       </section>
 
       <section className="landing-final landing-shell" aria-labelledby="landing-final-title">
@@ -247,7 +248,7 @@ export function LandingPage() {
       </div>
       <nav aria-label="Footer">
         <a href="#product">Product</a>
-        <a href="#privacy">Privacy</a>
+        <Link href="/privacy">Privacy</Link>
         <Link href={chatPath}>Open Nibie</Link>
       </nav>
       <p className="landing-footer-meta">© 2026 Nibie</p>

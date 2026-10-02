@@ -1,0 +1,28 @@
+import { ImageResponse } from "next/og";
+import { shareImageSize } from "@/lib/brand/share-image-meta";
+import { getWordmark } from "@/lib/config/branding";
+import { logoBodyColor, logoBodyPath, logoCap, logoFoldColor, logoFoldPath, logoViewBox } from "@/lib/config/logo-mark";
+
+// Dedicated share artwork. Same mark as the favicon, on the default dark ground, with the landing line.
+export function nibieShareImage() {
+  const name = getWordmark();
+  return new ImageResponse(
+    <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", justifyContent: "space-between", background: "#151412", color: "#F4EFE6", padding: "76px 84px" }}>
+      <div style={{ display: "flex", alignItems: "center" }}>
+        <div style={{ display: "flex", width: 92, height: 92, alignItems: "center", justifyContent: "center", background: "#211F1C", borderRadius: 24 }}>
+          <svg width="68" height="50" viewBox={logoViewBox}>
+            <path d={logoFoldPath} fill={logoFoldColor} />
+            <path d={logoBodyPath} fill={logoBodyColor} />
+            <rect x={logoCap.x} y={logoCap.y} width={logoCap.width} height={logoCap.height} rx={logoCap.rx} fill={logoBodyColor} />
+          </svg>
+        </div>
+        <div style={{ display: "flex", marginLeft: 28, fontSize: 44, letterSpacing: "-0.04em" }}>{name}</div>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", width: 980 }}>
+        <div style={{ display: "flex", width: 980, fontSize: 64, lineHeight: 1.08, letterSpacing: "-0.04em" }}>A quieter place to think with AI.</div>
+        <div style={{ display: "flex", marginTop: 24, fontSize: 28, color: "#AAA699" }}>Personal AI workspace</div>
+      </div>
+    </div>,
+    shareImageSize,
+  );
+}

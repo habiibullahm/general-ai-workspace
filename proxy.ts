@@ -1,8 +1,15 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { getSupabasePublicConfig, hasSupabasePublicConfig } from "@/lib/config/supabase";
+import { legacyConversationPath } from "@/lib/routes";
 
 export async function proxy(request: NextRequest) {
+  // Old bookmarks used /?conversation=<uuid>. Redirect before rendering so the landing page can stay static.
+  if (request.nextUrl.pathname === "/") {
+    const legacy = legacyConversationPath(request.nextUrl.searchParams.get("conversation"));
+    if (legacy) return NextResponse.redirect(new URL(legacy, request.url));
+  }
+
   if (!hasSupabasePublicConfig()) {
     return NextResponse.next({ request });
   }
@@ -35,5 +42,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|apple-icon|share-image|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
 };
