@@ -24,7 +24,7 @@ function subscribe(notify: () => void) {
   return () => { window.removeEventListener(changeEvent, notify); window.removeEventListener("storage", notify); };
 }
 
-export function ThemeSwitcher() {
+function useThemePreference() {
   // The server (and the first client render) assume the default; the real value is read right after hydration.
   const preference = useSyncExternalStore(subscribe, readPreference, () => defaultThemePreference);
 
@@ -38,6 +38,18 @@ export function ThemeSwitcher() {
     query.addEventListener("change", onChange);
     return () => query.removeEventListener("change", onChange);
   }, [preference]);
+
+  return preference;
+}
+
+// Stays mounted so a System choice keeps following the device after Settings closes.
+export function ThemeSync() {
+  useThemePreference();
+  return null;
+}
+
+export function ThemeSwitcher() {
+  const preference = useThemePreference();
 
   function choose(next: ThemePreference) {
     try { localStorage.setItem(themeStorageKey, next); } catch { /* the choice still applies for this visit */ }
