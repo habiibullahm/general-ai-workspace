@@ -3,12 +3,15 @@ import { expect, test } from "@playwright/test";
 test("the public landing page does not require authentication", async ({ page }) => {
   await page.goto("/");
   await expect(page).toHaveURL((url) => url.pathname === "/");
-  await expect(page).toHaveTitle("Nibie");
+  await expect(page).toHaveTitle("Nibie — A quieter place to think with AI");
   await expect(page.getByRole("heading", { level: 1, name: "A quieter place to think with AI." })).toBeVisible();
   const opens = page.getByRole("link", { name: "Open Nibie" });
-  await expect(opens).toHaveCount(3);
+  await expect(opens).toHaveCount(2);
   for (const link of await opens.all()) await expect(link).toHaveAttribute("href", "/chat");
-  await expect(page.locator(".landing-hero").getByRole("link", { name: "Open Nibie" })).toHaveAttribute("href", "/chat");
+  const tries = page.getByRole("link", { name: "Try Nibie" });
+  await expect(tries).toHaveCount(2);
+  for (const link of await tries.all()) await expect(link).toHaveAttribute("href", "/chat");
+  await expect(page.locator(".landing-hero").getByRole("link", { name: "Try Nibie" })).toHaveAttribute("href", "/chat");
   await expect(page.getByRole("link", { name: "See how it works" })).toHaveAttribute("href", "#product");
 });
 
