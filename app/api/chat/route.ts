@@ -9,6 +9,8 @@ import { contextCapabilitiesFor, getModelOptions } from "@/lib/ai/registry";
 import { readOpenAiSse } from "@/lib/ai/sse";
 import { buildContext } from "@/lib/context/build-context";
 import { CONTEXT_POLICY_VERSION } from "@/lib/context/context-policy";
+import type { RoomContextInput } from "@/lib/context/room-context";
+import { roomContextFromRows, type RoomBriefRow } from "@/lib/rooms/map";
 import { loadOwnerPreferences } from "@/lib/preferences/store";
 
 export const runtime = "nodejs";
@@ -51,7 +53,7 @@ async function respond(request: Request) {
   // (RLS hides other owners' rows from all three); the message context is trimmed to this message below.
   // Preferences are soft personalization. A failed read uses safe defaults and does not block this authenticated request.
   const [{ data: conversation, error: conversationError }, { data: userMessage, error: messageError }, { data: recent, error: readError }, preferenceState] = await Promise.all([
-    supabase.from("conversations").select("id,selected_model").eq("id", parsedId.data).maybeSingle(),
+    supabase.from("conversations").select("id,selected_model,room_id").eq("id", parsedId.data).maybeSingle(),
     supabase.from("messages").select("id,position,content").eq("id", parsedMessageId.data).eq("conversation_id", parsedId.data).eq("role", "user").eq("status", "complete").maybeSingle(),
     supabase.from("messages").select("role,content,status,position").eq("conversation_id", parsedId.data).eq("status", "complete").order("position", { ascending: false }).limit(34),
     loadOwnerPreferences(supabase),
@@ -59,6 +61,15 @@ async function respond(request: Request) {
   if (preferenceState.error) console.error("preference_read_failed");
   if (conversationError) return NextResponse.json({ error: safeError }, { status: 503 });
   if (!conversation) return NextResponse.json({ error: "Conversation unavailable." }, { status: 404 });
+  let room: RoomContextInput | null = null;
+  if (conversation.room_id) {
+    const [{ data: roomRow, error: roomError }, { data: briefRow, error: briefError }] = await Promise.all([
+      supabase.from("rooms").select("name,instructions").eq("id", conversation.room_id).maybeSingle(),
+      supabase.from("room_briefs").select("goal,current_focus,important_decisions,open_questions,next_step").eq("room_id", conversation.room_id).maybeSingle(),
+    ]);
+    if (roomError || briefError) return NextResponse.json({ error: safeError }, { status: 503 });
+    room = roomContextFromRows(roomRow, briefRow as RoomBriefRow | null);
+  }
   const mode = requestedModel?.data ?? resolveMode(conversation.selected_model, availableModes);
   if (!mode) return NextResponse.json({ error: safeError }, { status: 503 });
   const reasoning = requestedReasoning?.data ?? defaultReasoningEffort;
@@ -92,18 +103,21 @@ async function respond(request: Request) {
       preferences: preferenceState.preferences,
       preferenceReadFailed: Boolean(preferenceState.error),
       summary: null,
+      room,
       messages: rows.map((row) => ({ role: row.role as "user" | "assistant", content: row.content, position: row.position })),
       currentPosition: userMessage.position,
     });
     prompt = toProviderMessages(plan);
     context = plan.diagnostics;
     const profile = plan.blocks.some((block) => block.id === "profile" && block.included);
+    const roomIncluded = plan.blocks.some((block) => block.id === "room" && block.included);
     const summary = plan.blocks.some((block) => block.id === "thread_summary" && block.included);
     console.info(JSON.stringify({
       event: "context.built",
       "context.build.duration_ms": Date.now() - started,
       "context.source.count": plan.blocks.filter((block) => block.included).length,
       "context.profile.included": profile,
+      "context.room.included": roomIncluded,
       "context.summary.included": summary,
       "context.recent_message_count": plan.diagnostics.recentMessageCount,
       "context.estimated_tokens": plan.budget.estimatedTokens,

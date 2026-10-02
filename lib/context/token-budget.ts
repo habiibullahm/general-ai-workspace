@@ -3,6 +3,7 @@ import type { ModelContextCapabilities } from "@/lib/context/context-types";
 export const FETCH_CAP = 32;
 export const PROTECTED_RECENT_COUNT = 6;
 export const SUMMARY_TOKEN_CAP = 800;
+export const ROOM_TOKEN_CAP = 1_200;
 
 export function estimateTokens(text: string) {
   return Math.ceil(text.length / 4);

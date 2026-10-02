@@ -11,7 +11,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
-import { sql } from "drizzle-orm";
+import { type AnyColumn, sql } from "drizzle-orm";
 
 export const messageRole = pgEnum("message_role", ["user", "assistant"]);
 export const messageStatus = pgEnum("message_status", ["complete", "streaming", "interrupted", "error"]);
@@ -25,11 +25,64 @@ export const users = pgTable("users", {
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 });
 
+const trimmedText = (column: AnyColumn, min: number, max: number) =>
+  sql`${column} is null or (char_length(${column}) between ${sql.raw(String(min))} and ${sql.raw(String(max))} and ${column} = btrim(${column}))`;
+
+// A room is the owner's persistent working context. Threads stay valid without one.
+export const rooms = pgTable(
+  "rooms",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    instructions: text("instructions"),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("rooms_id_user_id_key").on(table.id, table.userId),
+    index("rooms_user_updated_idx").on(table.userId, table.updatedAt),
+    check("rooms_name_length", sql`char_length(${table.name}) between 1 and 80 and ${table.name} = btrim(${table.name})`),
+    check("rooms_description_length", trimmedText(table.description, 1, 500)),
+    check("rooms_instructions_length", trimmedText(table.instructions, 1, 2000)),
+  ],
+);
+
+// User-owned understanding of the room. Empty sections stay null. Not inferred memory.
+export const roomBriefs = pgTable(
+  "room_briefs",
+  {
+    roomId: uuid("room_id").primaryKey(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    goal: text("goal"),
+    currentFocus: text("current_focus"),
+    importantDecisions: text("important_decisions"),
+    openQuestions: text("open_questions"),
+    nextStep: text("next_step"),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "room_briefs_room_owner_fk",
+      columns: [table.roomId, table.userId],
+      foreignColumns: [rooms.id, rooms.userId],
+    }).onDelete("cascade"),
+    check("room_briefs_goal_length", trimmedText(table.goal, 1, 500)),
+    check("room_briefs_current_focus_length", trimmedText(table.currentFocus, 1, 500)),
+    check("room_briefs_important_decisions_length", trimmedText(table.importantDecisions, 1, 500)),
+    check("room_briefs_open_questions_length", trimmedText(table.openQuestions, 1, 500)),
+    check("room_briefs_next_step_length", trimmedText(table.nextStep, 1, 500)),
+  ],
+);
+
 export const conversations = pgTable(
   "conversations",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    roomId: uuid("room_id"),
     title: text("title").notNull().default("New chat"),
     selectedModel: text("selected_model").notNull().default("default"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
@@ -37,7 +90,14 @@ export const conversations = pgTable(
   },
   (table) => [
     index("conversations_user_updated_idx").on(table.userId, table.updatedAt),
+    index("conversations_user_room_idx").on(table.userId, table.roomId),
     unique("conversations_id_user_id_key").on(table.id, table.userId),
+    // Same-owner link. The migration nulls only room_id when the room is deleted; user_id stays.
+    foreignKey({
+      name: "conversations_room_owner_fk",
+      columns: [table.roomId, table.userId],
+      foreignColumns: [rooms.id, rooms.userId],
+    }).onDelete("set null"),
   ],
 );
 
