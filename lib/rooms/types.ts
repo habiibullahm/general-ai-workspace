@@ -11,6 +11,16 @@ export type RoomBriefFields = {
   next: string | null;
 };
 
+export const roomBriefFields: Array<{ key: keyof RoomBriefFields; label: string }> = [
+  { key: "goal", label: "Goal" },
+  { key: "currentFocus", label: "Current focus" },
+  { key: "importantDecisions", label: "Important decisions" },
+  { key: "openQuestions", label: "Open questions" },
+  { key: "next", label: "Next" },
+];
+
+export type RoomOverview = { description: string | null; brief: RoomBriefFields };
+
 export type RoomDraft = {
   name: string;
   description?: string | null;

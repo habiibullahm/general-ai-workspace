@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { Plus } from "lucide-react";
 import type { ConversationSummary, RoomSummary } from "@/lib/chat/read";
-import type { RoomBriefFields } from "@/lib/rooms/types";
+import { roomBriefFields, type RoomBriefFields } from "@/lib/rooms/types";
 
 type SaveResult = { error?: string };
+const noopSubscribe = () => () => undefined;
 
 type Props = {
   room: RoomSummary;
@@ -18,14 +19,6 @@ type Props = {
   onDelete: () => Promise<SaveResult>;
 };
 
-const briefFields: Array<{ key: keyof RoomBriefFields; label: string }> = [
-  { key: "goal", label: "Goal" },
-  { key: "currentFocus", label: "Current focus" },
-  { key: "importantDecisions", label: "Important decisions" },
-  { key: "openQuestions", label: "Open questions" },
-  { key: "next", label: "Next" },
-];
-
 function briefFromRoom(room: RoomSummary): RoomBriefFields {
   return {
     goal: room.brief?.goal ?? null,
@@ -37,6 +30,7 @@ function briefFromRoom(room: RoomSummary): RoomBriefFields {
 }
 
 export function RoomDetail({ room, threads, busy, onOpenThread, onNewThread, onSaveRoom, onSaveBrief, onDelete }: Props) {
+  const mounted = useSyncExternalStore(noopSubscribe, () => true, () => false);
   const [name, setName] = useState(room.name);
   const [description, setDescription] = useState(room.description ?? "");
   const [instructions, setInstructions] = useState(room.instructions ?? "");
@@ -84,7 +78,7 @@ export function RoomDetail({ room, threads, busy, onOpenThread, onNewThread, onS
     if (result.error) setError(result.error);
   }
 
-  const locked = busy || saving !== null;
+  const locked = !mounted || busy || saving !== null;
 
   return <div className="room-detail">
     <p className="welcome-eyebrow">Room</p>
@@ -97,7 +91,7 @@ export function RoomDetail({ room, threads, busy, onOpenThread, onNewThread, onS
     <section className="room-brief" aria-label="Room brief">
       <h2>Brief</h2>
       <p>A short, editable picture of this room. Nibie uses it as context in threads here.</p>
-      {briefFields.map((field) => <label className="room-field" key={field.key}><span>{field.label}</span><textarea value={brief[field.key] ?? ""} maxLength={500} rows={3} disabled={locked} onChange={(event) => setBrief((current) => ({ ...current, [field.key]: event.target.value }))} /></label>)}
+      {roomBriefFields.map((field) => <label className="room-field" key={field.key}><span>{field.label}</span><textarea value={brief[field.key] ?? ""} maxLength={500} rows={3} disabled={locked} onChange={(event) => setBrief((current) => ({ ...current, [field.key]: event.target.value }))} /></label>)}
       <button type="button" className="privacy-button" disabled={locked} onClick={() => void saveBrief()}>{saving === "brief" ? "Saving…" : "Save brief"}</button>
     </section>
     <section className="room-threads" aria-label="Threads">

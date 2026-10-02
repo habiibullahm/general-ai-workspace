@@ -124,14 +124,6 @@ button:focus-visible, a:focus-visible, select:focus-visible, textarea:focus-visi
 .history-action { display: grid; place-items: center; flex: none; width: 25px; height: 27px; padding: 0; border: 0; border-radius: 6px; color: var(--text-4); background: transparent; cursor: pointer; opacity: 0; }
 .history-entry:hover .history-action, .history-action:focus-visible { opacity: 1; }
 .history-action:hover { color: var(--text); background: var(--hover); }
-.room-create { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 9px 8px; }
-.room-create input { flex: 1 1 120px; min-width: 0; height: 32px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--bg-app); color: var(--text); font-size: 12.5px; }
-.room-create input:focus { border-color: var(--focus); outline: none; }
-.room-create button { height: 32px; padding: 0 8px; border: 0; border-radius: 8px; background: transparent; color: var(--text-3); font-size: 12px; cursor: pointer; }
-.room-create button[type="submit"] { background: var(--bg-muted); color: var(--text); }
-.room-create button:hover:not(:disabled) { color: var(--text); }
-.room-create button:disabled { opacity: .5; cursor: not-allowed; }
-.room-create p { flex: 1 0 100%; margin: 0; color: var(--danger); font-size: 11px; line-height: 1.4; }
 .thread-room { display: inline-flex; align-items: center; gap: 6px; margin-left: 14px; color: var(--text-4); font-size: 12px; font-weight: 450; }
 .thread-room select { max-width: 180px; height: 30px; padding: 0 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-raised); color: var(--text-2); font-size: 12px; }
 .conversation-scroll.is-room { padding: 28px 28px 40px; }
@@ -150,6 +142,12 @@ button:focus-visible, a:focus-visible, select:focus-visible, textarea:focus-visi
 .room-threads li button { display: block; width: 100%; padding: 10px 12px; border: 0; border-radius: 8px; background: transparent; color: var(--text-2); text-align: left; font-size: 14px; cursor: pointer; }
 .room-threads li button:hover { background: var(--hover); color: var(--text); }
 .room-detail > .is-danger { margin-top: 8px; }
+.room-setup-dialog { width: min(640px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); margin: auto; padding: 0; border: 1px solid var(--border); border-radius: 16px; background: var(--bg-raised); color: var(--text); box-shadow: var(--shadow-menu); overflow: auto; }
+.room-setup-dialog::backdrop { background: var(--scrim); }
+.room-setup-form { display: flex; flex-direction: column; gap: 14px; padding: 20px; }
+.room-setup-form h2 { margin: 4px 0 0; font-size: 16px; }
+.room-setup-copy, .room-setup-status { margin: 0; color: var(--text-3); font-size: 13px; line-height: 1.6; }
+.room-setup-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 .account-area { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border); }
 .account-row { display: flex; align-items: center; gap: 9px; min-height: 46px; padding: 0 5px; }
 .account-menu { position: relative; flex: 1; min-width: 0; }
