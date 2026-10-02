@@ -6,7 +6,7 @@ import { modelSchema, validateConversationId, validateMessage, validateTitle, ty
 import { getModelOptions } from "@/lib/ai/registry";
 
 export type ChatActionResult<T = undefined> = { data?: T; error?: string };
-type ConversationRow = { id: string; title: string; selected_model: string; created_at: string; updated_at: string };
+type ConversationRow = { id: string; title: string; selected_model: string; room_id: string | null; created_at: string; updated_at: string };
 type SavedMessage = { id: string; position: number };
 type Supabase = Awaited<ReturnType<typeof createSupabaseServerClient>>;
 
@@ -27,12 +27,13 @@ function failure<T>(): ChatActionResult<T> {
   return { error: saveFailed };
 }
 
-async function insertConversation(supabase: Supabase, userId: string, model: ChatModel) {
+async function insertConversation(supabase: Supabase, userId: string, model: ChatModel, roomId: string | null) {
   return supabase.from("conversations").insert({
     user_id: userId,
     title: "New chat",
     selected_model: model,
-  }).select("id,title,selected_model,created_at,updated_at").single();
+    ...(roomId ? { room_id: roomId } : {}),
+  }).select("id,title,selected_model,room_id,created_at,updated_at").single();
 }
 
 // Returns the saved message, or the safe error message to show.
@@ -52,7 +53,7 @@ export async function createConversationAction(model: unknown): Promise<ChatActi
   if (!isModeAvailable(parsedModel.data)) return modelUnavailable;
   try {
     const { supabase, user } = await authenticatedClient();
-    const { data, error } = await insertConversation(supabase, user.id, parsedModel.data);
+    const { data, error } = await insertConversation(supabase, user.id, parsedModel.data, null);
     if (error || !data) return failure();
     return { data };
   } catch {
@@ -62,17 +63,20 @@ export async function createConversationAction(model: unknown): Promise<ChatActi
 
 // The first message of a new chat: creates the conversation and saves the message in one round trip from the browser.
 // If the message cannot be saved, the empty conversation is removed again so history is not left with a blank "New chat".
-export async function startConversationAction(model: unknown, messageId: unknown, content: unknown): Promise<ChatActionResult<{ conversation: ConversationRow; message: SavedMessage }>> {
+export async function startConversationAction(model: unknown, messageId: unknown, content: unknown, roomId: unknown = null): Promise<ChatActionResult<{ conversation: ConversationRow; message: SavedMessage }>> {
   const parsedModel = modelSchema.safeParse(model);
   const parsedMessageId = validateConversationId(messageId);
   const parsedContent = validateMessage(content);
+  const parsedRoom = roomId === null || roomId === undefined ? { success: true as const, data: null } : validateConversationId(roomId);
   if (!parsedModel.success) return { error: "Choose a valid response mode." };
   if (!parsedMessageId.success) return { error: "Choose a valid message." };
   if (!parsedContent.success) return { error: "Messages must be between 1 and 20,000 characters." };
+  if (!parsedRoom.success) return { error: "Choose a valid room." };
   if (!isModeAvailable(parsedModel.data)) return modelUnavailable;
   try {
     const { supabase, user } = await authenticatedClient();
-    const { data: conversation, error } = await insertConversation(supabase, user.id, parsedModel.data);
+    const { data: conversation, error } = await insertConversation(supabase, user.id, parsedModel.data, parsedRoom.data);
+    if (error?.code === "23503") return { error: "That room is no longer available." };
     if (error || !conversation) return failure();
     const saved = await appendMessage(supabase, conversation.id, parsedMessageId.data, parsedContent.data);
     if ("error" in saved) {
@@ -147,6 +151,23 @@ export async function renameConversationAction(id: unknown, title: unknown): Pro
   try {
     const { supabase } = await authenticatedClient();
     const { data, error } = await supabase.from("conversations").update({ title: parsedTitle.data, updated_at: new Date().toISOString() }).eq("id", parsedId.data).select("id").maybeSingle();
+    if (error) return failure();
+    if (!data) return { error: "That conversation is no longer available." };
+    return {};
+  } catch {
+    return { error: "Your session has expired or the service is unavailable. Please try again." };
+  }
+}
+
+export async function moveConversationAction(id: unknown, roomId: unknown): Promise<ChatActionResult> {
+  const parsedId = validateConversationId(id);
+  const parsedRoom = roomId === null ? { success: true as const, data: null } : validateConversationId(roomId);
+  if (!parsedId.success) return { error: "Choose a valid conversation." };
+  if (!parsedRoom.success) return { error: "Choose a valid room." };
+  try {
+    const { supabase } = await authenticatedClient();
+    const { data, error } = await supabase.from("conversations").update({ room_id: parsedRoom.data, updated_at: new Date().toISOString() }).eq("id", parsedId.data).select("id").maybeSingle();
+    if (error?.code === "23503") return { error: "That room is no longer available." };
     if (error) return failure();
     if (!data) return { error: "That conversation is no longer available." };
     return {};

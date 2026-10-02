@@ -1,4 +1,5 @@
 import type { ContextDiagnostics, ContextSourceDiagnostic } from "@/lib/context/context-types";
+import { roomPieces, roomReason, type RoomContextInput } from "@/lib/context/room-context";
 import { aboutYouLimit, preferredNameLimit, type UserPreferences } from "@/lib/preferences/types";
 import { normalizePreferenceText } from "@/lib/preferences/instructions";
 
@@ -58,7 +59,7 @@ export function profileReason(categories: ProfileCategory[]) {
 
 const summaryUnused: ContextSourceDiagnostic = { type: "thread_summary", label: "Thread summary", state: "not_used", reason: "Not needed yet." };
 
-export function previewContextDiagnostics(input: { preferences: UserPreferences; preferenceReadFailed: boolean; hasEarlierMessages: boolean }): ContextDiagnostics {
+export function previewContextDiagnostics(input: { preferences: UserPreferences; preferenceReadFailed: boolean; hasEarlierMessages: boolean; room?: RoomContextInput | null }): ContextDiagnostics {
   const pieces = input.preferenceReadFailed ? [] : profilePieces(input.preferences);
   const profile: ContextSourceDiagnostic = pieces.length
     ? { type: "profile", label: "Your profile", state: "included", reason: profileReason(pieces.flatMap((piece) => piece.categories)) }
@@ -66,5 +67,12 @@ export function previewContextDiagnostics(input: { preferences: UserPreferences;
   const recent: ContextSourceDiagnostic = input.hasEarlierMessages
     ? { type: "recent_messages", label: "Recent conversation", state: "included", reason: "The latest messages in this thread." }
     : { type: "recent_messages", label: "Recent conversation", state: "not_used", reason: "No earlier messages yet." };
-  return { sources: [profile, recent, summaryUnused], recentMessageCount: input.hasEarlierMessages ? 1 : 0 };
+  const sources: ContextSourceDiagnostic[] = [profile, recent, summaryUnused];
+  if (input.room) {
+    const roomParts = roomPieces(input.room);
+    sources.splice(1, 0, roomParts.length
+      ? { type: "room", label: "This room", state: "included", reason: roomReason(roomParts.flatMap((piece) => piece.categories)) }
+      : { type: "room", label: "This room", state: "not_used", reason: "No room instructions or brief are set." });
+  }
+  return { sources, recentMessageCount: input.hasEarlierMessages ? 1 : 0 };
 }

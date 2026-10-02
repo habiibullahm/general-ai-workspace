@@ -173,6 +173,46 @@ describe("context engine", () => {
     expect(plan.diagnostics.sources[2].reason).toBe("Not needed yet.");
   });
 
+  it("places room instructions and brief after profile and keeps them out of diagnostics text", () => {
+    const plan = buildContext(input({
+      room: {
+        name: "Nibie Development",
+        instructions: "Stay calm",
+        brief: { goal: "Ship rooms", currentFocus: "", importantDecisions: "", openQuestions: "", next: "Verify" },
+      },
+    }));
+    const room = plan.blocks.find((block) => block.id === "room");
+    expect(room?.included).toBe(true);
+    expect(room?.text).toContain('Room "Nibie Development" instructions: "Stay calm"');
+    expect(room?.text).toContain('Goal: "Ship rooms"');
+    expect(room?.text).not.toContain("Current focus");
+    expect(plan.diagnostics.sources.map((source) => source.type)).toEqual(["profile", "room", "recent_messages", "thread_summary"]);
+    expect(plan.diagnostics.sources[1]).toMatchObject({ state: "included", reason: "Instructions and brief" });
+    expect(JSON.stringify(plan.diagnostics)).not.toContain("Stay calm");
+    expect(JSON.stringify(plan.diagnostics)).not.toContain("Nibie Development");
+    const provider = toProviderMessages(plan);
+    expect(provider[1]?.role).toBe("system");
+    expect(provider[1]?.content).toContain("Stay calm");
+    expect(provider.at(-1)?.content).toBe("hello");
+  });
+
+  it("leaves general threads without a room row and drops a brief that does not fit", () => {
+    expect(buildContext(input()).diagnostics.sources.map((source) => source.type)).toEqual(["profile", "recent_messages", "thread_summary"]);
+    const empty = buildContext(input({ room: { name: "Empty", instructions: null, brief: null } }));
+    expect(empty.blocks.find((block) => block.id === "room")?.included).toBe(false);
+    expect(empty.diagnostics.sources[1]?.reason).toBe("No room instructions or brief are set.");
+    const thread = messages(3, 40);
+    const tight = buildContext(input({
+      messages: thread,
+      currentPosition: 3,
+      room: { name: "Nibie", instructions: "Keep this", brief: { goal: "g".repeat(500), currentFocus: "", importantDecisions: "", openQuestions: "", next: "" } },
+      capabilities: { contextWindowTokens: estimateTokens(CONTEXT_POLICY_TEXT) + thread.reduce((sum, message) => sum + estimateTokens(message.content), 0) + 80, maxOutputTokens: 4 },
+    }));
+    expect(tight.blocks.find((block) => block.id === "room")?.text).toContain("Keep this");
+    expect(tight.blocks.find((block) => block.id === "room")?.text).not.toContain("g".repeat(50));
+    expect(toProviderMessages(tight).filter((message) => message.role !== "system")).toHaveLength(3);
+  });
+
   it("builds a 32-message plan in under 15ms", () => {
     const started = Date.now();
     buildContext(input({ messages: messages(32, 200), currentPosition: 32 }));

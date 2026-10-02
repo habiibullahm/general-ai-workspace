@@ -6,6 +6,14 @@ export function conversationPath(id: string) {
   return `${chatPath}?conversation=${encodeURIComponent(id)}`;
 }
 
+export function roomPath(id: string) {
+  return `${chatPath}?room=${encodeURIComponent(id)}`;
+}
+
+export function roomDraftPath(id: string) {
+  return `${roomPath(id)}&draft=1`;
+}
+
 // Old bookmarks used /?conversation=<uuid>. Only a real conversation id leaves the marketing page.
 export function legacyConversationPath(value: unknown) {
   const parsed = validateConversationId(value);

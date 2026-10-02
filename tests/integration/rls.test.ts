@@ -30,6 +30,9 @@ describe("Supabase row-level security", () => {
 
   beforeAll(async () => {
     await sql`drop schema if exists drizzle cascade`;
+    await sql`drop table if exists public.room_briefs cascade`;
+    await sql`drop table if exists public.rooms cascade`;
+    await sql`drop function if exists public.set_rooms_updated_at() cascade`;
     await sql`drop table if exists public.user_preferences cascade`;
     await sql`drop function if exists public.set_user_preferences_updated_at() cascade`;
     await sql`drop table if exists public.messages cascade`;
@@ -110,6 +113,25 @@ describe("Supabase row-level security", () => {
     expect(deleted).toHaveLength(0);
     const [ownerRow] = await sql`select content from public.messages where id = ${messageB}`;
     expect(ownerRow.content).toBe("private message");
+  });
+
+  it("keeps rooms owner-scoped and leaves general threads valid when a room is deleted", async () => {
+    const roomA = randomUUID();
+    const roomB = randomUUID();
+    const thread = randomUUID();
+    await asUser(userA, (tx) => tx`insert into public.rooms (id, user_id, name, instructions) values (${roomA}, ${userA}, 'Nibie', 'Stay calm')`);
+    await sql`insert into public.rooms (id, user_id, name) values (${roomB}, ${userB}, 'Private room')`;
+    const visible = await asUser(userA, (tx) => tx`select id from public.rooms`);
+    expect(visible.map((row) => row.id)).toEqual([roomA]);
+    await expect(asUser(userA, (tx) => tx`insert into public.rooms (user_id, name) values (${userB}, 'not owned')`)).rejects.toThrow();
+    await expect(asUser(userA, (tx) => tx`insert into public.conversations (user_id, room_id, title) values (${userA}, ${roomB}, 'cross room')`)).rejects.toThrow();
+    await asUser(userA, (tx) => tx`insert into public.conversations (id, user_id, room_id, title) values (${thread}, ${userA}, ${roomA}, 'In the room')`);
+    await asUser(userA, (tx) => tx`insert into public.room_briefs (room_id, user_id, goal) values (${roomA}, ${userA}, 'Ship it')`);
+    const brief = await asUser(userB, (tx) => tx`select goal from public.room_briefs where room_id = ${roomA}`);
+    expect(brief).toHaveLength(0);
+    await asUser(userA, (tx) => tx`delete from public.rooms where id = ${roomA}`);
+    const [kept] = await asUser(userA, (tx) => tx`select room_id, title from public.conversations where id = ${thread}`);
+    expect(kept).toEqual({ room_id: null, title: "In the room" });
   });
 
   it("allows users to read only their own profile row", async () => {

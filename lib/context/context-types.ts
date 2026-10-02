@@ -1,6 +1,9 @@
 import type { UserPreferences } from "@/lib/preferences/types";
+import type { RoomContextInput } from "@/lib/context/room-context";
 
-export type ContextSourceType = "core" | "profile" | "thread_summary" | "recent_messages" | "current_request";
+export type { RoomContextInput } from "@/lib/context/room-context";
+
+export type ContextSourceType = "core" | "profile" | "room" | "thread_summary" | "recent_messages" | "current_request";
 
 export type ContextAuthority = "policy" | "untrusted_data";
 
@@ -21,8 +24,8 @@ export type ContextBlock = {
 };
 
 export type ContextSourceDiagnostic = {
-  type: "profile" | "thread_summary" | "recent_messages";
-  label: "Your profile" | "Thread summary" | "Recent conversation";
+  type: "profile" | "room" | "thread_summary" | "recent_messages";
+  label: "Your profile" | "This room" | "Thread summary" | "Recent conversation";
   state: "included" | "not_used";
   reason: string;
 };
@@ -75,6 +78,8 @@ export type BuildContextInput = {
   summary: ThreadSummary | null;
   messages: ThreadMessage[];
   currentPosition: number;
+  // Omitted or null for a general thread. Present only after the caller has authorized the room.
+  room?: RoomContextInput | null;
 };
 
 export class ContextBuildError extends Error {
