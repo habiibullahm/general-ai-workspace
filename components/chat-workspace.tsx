@@ -21,7 +21,7 @@ import { modelForComposer } from "@/lib/preferences/model";
 import { defaultUserPreferences, type UserPreferences } from "@/lib/preferences/types";
 import { followAfterSending, followStreamedContent, isNearBottom, trackNearBottom } from "@/lib/chat/scroll";
 import { readChatSse } from "@/lib/ai/sse";
-import { classifyStreamFailure, isRecoverySettled, latestReplyFailed, needsServerCheck, recoveryMaxPolls, recoveryPollMs } from "@/lib/chat/recovery";
+import { activeAssistantId, classifyStreamFailure, hasActiveGeneration, isRecoverySettled, isRegressiveSnapshot, latestReplyFailed, needsServerCheck, recoveryPollAction, recoveryPollMs, unseenGenerationSettled } from "@/lib/chat/recovery";
 
 type Conversation = ConversationSummary & { messages: PersistedMessage[] };
 type WorkspaceData = { conversations: ConversationSummary[]; messages: PersistedMessage[]; activeId: string | null; error: string | null };
@@ -29,6 +29,9 @@ type GenerateOptions = { regenerate?: boolean; replaceIds?: string[]; placeholde
 // While a response's outcome is unknown, the server is polled until it reports a settled state (see lib/chat/recovery.ts).
 type Recovery = { conversationId: string; assistantId: string | null; baseline: WorkspaceData | undefined };
 const failureNotice = "Nibie couldn't complete that response. Please try again.";
+const unconfirmedNotice = "We couldn't confirm that response. Reload the page to check it.";
+const stillFinishingNotice = "A response is still finishing. It will appear here when it's done.";
+const droppedConnectionNotice = "The connection dropped. Checking whether your response was saved…";
 const suggestions = ["Help me think through an idea", "Write something with me", "Explain a new topic"];
 const noConversations: ConversationSummary[] = [];
 // Streamed text is applied in small batches so a long reply is not re-parsed as Markdown for every network chunk.
@@ -83,6 +86,10 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
   const busy = useRef(false);
   const submission = useRef<{ id: string; content: string; conversationId: string | null } | null>(null);
   const streamController = useRef<AbortController | null>(null);
+  const recoveryEpoch = useRef(0);
+  const [acceptedMessages, setAcceptedMessages] = useState<PersistedMessage[]>(initialData?.messages ?? []);
+  const acceptedMessagesRef = useRef(acceptedMessages);
+  useEffect(() => { acceptedMessagesRef.current = acceptedMessages; }, [acceptedMessages]);
   const [serverData, setServerData] = useState(initialData);
   const [notice, setNotice] = useState(initialData?.error ?? "");
   const composerRef = useRef<ComposerHandle>(null);
@@ -133,23 +140,31 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
   // The navigation the user asked for has landed once the URL matches it; from then on the URL is the source of truth again.
   if (pendingId !== undefined && conversationParam === pendingId) setPendingId(undefined);
 
-  if (recovery && initialData && initialData !== recovery.baseline && initialData.activeId === recovery.conversationId && isRecoverySettled(initialData.messages, recovery.assistantId)) {
+  const serverSnapshot = initialData && initialData.activeId === (recovery?.conversationId ?? activeId) && !isRegressiveSnapshot(acceptedMessages, initialData.messages) ? initialData : null;
+  if (serverSnapshot && serverSnapshot.messages !== acceptedMessages) setAcceptedMessages(serverSnapshot.messages);
+  const baselineMessages = recovery?.baseline?.messages ?? [];
+  const recoverySettled = Boolean(recovery && serverSnapshot && serverSnapshot !== recovery.baseline && (recovery.assistantId ? isRecoverySettled(serverSnapshot.messages, recovery.assistantId, baselineMessages) : unseenGenerationSettled(baselineMessages, serverSnapshot.messages)));
+  if (recovery && serverSnapshot && recoverySettled) {
     // Fresh server data says the response is settled: show the server's truth and drop any stale failure notice.
     setRecovery(null);
-    setNotice(latestReplyFailed(initialData.messages) ? failureNotice : "");
+    setNotice(latestReplyFailed(serverSnapshot.messages) ? failureNotice : "");
+    setServerData(serverSnapshot);
+    setLocalMessages((items) => { const next = { ...items }; delete next[recovery.conversationId]; return next; });
+    setRemovedIds([]);
   }
 
-  if (!preview && initialData !== serverData && initialData?.activeId === activeId && !sending && !streaming) {
-    const pending = localMessages[initialData?.activeId ?? ""] ?? [];
-    const settled = pending.every((message) => initialData?.messages.some((saved) => saved.id === message.id && saved.status !== "streaming" && (message.role !== "user" || saved.content === message.content)));
-    if (settled && removedIds.every((id) => !initialData?.messages.some((saved) => saved.id === id))) {
-      setServerData(initialData);
+  if (!preview && serverSnapshot && serverSnapshot !== serverData && serverSnapshot.activeId === activeId && !sending && !streaming && !recoverySettled) {
+    const pending = localMessages[serverSnapshot?.activeId ?? ""] ?? [];
+    const settled = pending.every((message) => serverSnapshot?.messages.some((saved) => saved.id === message.id && saved.status !== "streaming" && (message.role !== "user" || saved.content === message.content)));
+    if (settled && removedIds.every((id) => !serverSnapshot?.messages.some((saved) => saved.id === id))) {
+      setServerData(serverSnapshot);
       // A new chat has no saved mode. Adopting the empty server payload must not wipe the choice the user just made.
-      if (initialData?.activeId) setMode(modeFor(initialData.conversations.find((item) => item.id === initialData.activeId)?.selected_model, true));
+      if (serverSnapshot?.activeId) setMode(modeFor(serverSnapshot.conversations.find((item) => item.id === serverSnapshot.activeId)?.selected_model, true));
       setLocalMessages({});
       setRemovedIds([]);
       setLocalConversations([]);
-      if (initialData?.error) setNotice(initialData.error);
+      if (serverSnapshot?.error) setNotice(serverSnapshot.error);
+      else if (!latestReplyFailed(serverSnapshot.messages) && (notice === unconfirmedNotice || notice === stillFinishingNotice || notice === droppedConnectionNotice)) setNotice("");
     }
   }
 
@@ -183,14 +198,23 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
     if (preview || !activeId || !shownConversations.some((item) => item.id === activeId)) return;
     writeLastConversationId(activeId);
   }, [activeId, preview, shownConversations]);
+  const beginRecovery = (next: Recovery) => { recoveryEpoch.current += 1; setRecovery(next); };
   const recoveryConversationId = recovery?.conversationId ?? null;
   useEffect(() => {
     if (!recoveryConversationId) return;
+    const epoch = recoveryEpoch.current;
     let polls = 0;
     router.refresh();
     const timer = setInterval(() => {
+      if (epoch !== recoveryEpoch.current) { clearInterval(timer); return; }
       polls += 1;
-      if (polls >= recoveryMaxPolls) { clearInterval(timer); setRecovery(null); setNotice("We couldn't confirm that response. Reload the page to check it."); return; }
+      if (recoveryPollAction(polls, acceptedMessagesRef.current) === "give-up") {
+        clearInterval(timer);
+        const messages = acceptedMessagesRef.current;
+        setRecovery(null);
+        setNotice(hasActiveGeneration(messages) || !messages.some((message) => message.role === "assistant" && message.status && message.status !== "streaming") ? unconfirmedNotice : latestReplyFailed(messages) ? failureNotice : "");
+        return;
+      }
       router.refresh();
     }, recoveryPollMs);
     return () => clearInterval(timer);
@@ -298,15 +322,16 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
         // The outcome is not known from this side: the server saves the terminal state of every generation, so keep what is
         // on screen, lock message actions, and let the polling effect adopt the server's final state.
         if (assistantId && kind === "stopped") setLocalMessages((items) => ({ ...items, [id]: (items[id] ?? []).map((message) => message.id === assistantId ? { ...message, content: message.content || "Response stopped.", status: "interrupted" } : message) }));
-        setNotice(kind === "lost-connection" ? "The connection dropped. Checking whether your response was saved…" : kind === "in-progress" ? "A response is still finishing. It will appear here when it's done." : "");
-        setRecovery({ conversationId: id, assistantId, baseline: latestData.current });
+        setNotice(kind === "lost-connection" ? droppedConnectionNotice : kind === "in-progress" ? stillFinishingNotice : "");
+        const knownAssistantId = assistantId ?? activeAssistantId([...(localMessages[id] ?? []), ...(latestData.current?.messages ?? [])]);
+        beginRecovery({ conversationId: id, assistantId: knownAssistantId, baseline: latestData.current ?? { conversations: [], messages: [], activeId: id, error: null } });
       } else {
         // The server reported this failure itself, so it is final.
         if (assistantId) setLocalMessages((items) => ({ ...items, [id]: (items[id] ?? []).map((message) => message.id === assistantId ? { ...message, content: message.content || "Response unavailable.", status: "error" } : message) }));
         setNotice(failureNotice);
         router.refresh();
       }
-    } finally { clearPlaceholder(); if (flushTimer) clearTimeout(flushTimer); streamController.current = null; busy.current = false; setSending(false); setStreaming(false); }
+    } finally { clearPlaceholder(); if (flushTimer) clearTimeout(flushTimer); if (streamController.current === controller) streamController.current = null; busy.current = false; setSending(false); setStreaming(false); }
   }
   const submitMessage = useStableCallback(async (content: string) => {
     if (!content || busy.current || recovery) return;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ChatStreamServerError, readChatSse } from "../../lib/ai/sse";
-import { classifyStreamFailure, hasActiveGeneration, isRecoverySettled, latestReplyFailed, needsServerCheck } from "../../lib/chat/recovery";
+import { classifyStreamFailure, hasActiveGeneration, isRecoverySettled, isRegressiveSnapshot, latestReplyFailed, needsServerCheck, reconcileRecovery, recoveryHardMaxPolls, recoveryMaxPolls, recoveryPollAction, unseenGenerationSettled } from "../../lib/chat/recovery";
 
 const id = "e3b624e6-d792-47a8-8ff2-46724452c1ca";
 const row = (status: string, extra: Partial<{ id: string; role: string; position: number }> = {}) => ({ id, role: "assistant", position: 2, status, ...extra });
@@ -83,6 +83,40 @@ describe("recovery settlement against fresh server data", () => {
     const saved = [row("complete", { role: "user", id: "11111111-1111-4111-8111-111111111111", position: 1 }), row("complete")];
     expect(isRecoverySettled(saved, id)).toBe(true);
     expect(latestReplyFailed(saved)).toBe(false);
+  });
+
+  const user = row("complete", { id: "11111111-1111-4111-8111-111111111111", role: "user", position: 1 });
+  const other = "22222222-2222-4222-8222-222222222222";
+
+  it("keeps Retry locked through Stop → 409 → original settle, then adopts one successful retry", () => {
+    const streaming = [user, row("streaming")];
+    const interrupted = [user, row("interrupted")];
+    const collided = reconcileRecovery({ assistantId: id, baseline: streaming, snapshots: [streaming, streaming, interrupted] });
+    expect(collided.locked).toBe(false);
+    expect(collided.adopted).toEqual(interrupted);
+    expect(recoveryPollAction(recoveryMaxPolls, streaming)).toBe("continue");
+    expect(unseenGenerationSettled([user], [user])).toBe(false);
+    expect(unseenGenerationSettled([user], streaming)).toBe(false);
+    expect(unseenGenerationSettled([user], interrupted)).toBe(true);
+
+    const retriedStreaming = [user, row("streaming", { id: other })];
+    const retriedDone = [user, row("complete", { id: other, position: 2 })];
+    const retried = reconcileRecovery({ assistantId: other, baseline: interrupted, snapshots: [retriedStreaming, retriedDone, streaming] });
+    expect(retried.locked).toBe(false);
+    expect(retried.adopted).toEqual(retriedDone);
+    expect(retried.adopted?.filter((message) => message.role === "assistant")).toHaveLength(1);
+    expect(hasActiveGeneration(retried.adopted ?? [])).toBe(false);
+  });
+
+  it("adopts a terminal poll and ignores a stale streaming snapshot that arrives later", () => {
+    const streaming = [user, row("streaming")];
+    const done = [user, row("complete")];
+    const result = reconcileRecovery({ assistantId: id, baseline: streaming, snapshots: [streaming, done, streaming] });
+    expect(result).toEqual({ locked: false, adopted: done });
+    expect(isRegressiveSnapshot(done, streaming)).toBe(true);
+    expect(latestReplyFailed(done)).toBe(false);
+    expect(recoveryPollAction(recoveryMaxPolls, done)).toBe("give-up");
+    expect(recoveryPollAction(recoveryHardMaxPolls, streaming)).toBe("give-up");
   });
 
   it("follows Stop, then Retry, then success: only the final saved state matters", () => {
