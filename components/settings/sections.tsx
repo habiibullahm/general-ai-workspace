@@ -1,6 +1,7 @@
 "use client";
 
 import { DataPrivacyPanel } from "@/components/data-privacy-dialog";
+import { ThemeSwitcher } from "@/components/theme-switcher";
 import { useChatFlag } from "@/components/use-chat-preferences";
 import { SettingsChoice, SettingsSection, SettingsTextField } from "@/components/settings/settings-section";
 import type { ModelOption } from "@/lib/chat/models";
@@ -39,6 +40,11 @@ const styleOptions = [
 export function GeneralSettingsSection({ preferences, disabled, onChange }: SettingsSectionProps) {
   return <SettingsSection title="General" description="Language Nibie should prefer when you have not asked for one.">
     <SettingsChoice label="Preferred language" hint="Auto follows the language you are using. English and Bahasa Indonesia are saved on your account." value={preferences.preferredLanguage} options={[...languageOptions]} disabled={disabled} onChange={(preferredLanguage) => onChange({ preferredLanguage })} />
+    <div className="settings-theme">
+      <div className="settings-theme-label">Theme</div>
+      <p>Dark, light, or match this device. Stored on this device.</p>
+      <ThemeSwitcher />
+    </div>
   </SettingsSection>;
 }
 

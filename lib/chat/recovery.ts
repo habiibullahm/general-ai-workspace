@@ -87,10 +87,20 @@ export function activeAssistantId(messages: readonly StatusRow[]) {
 }
 
 // Keep polling through an active generation. Giving up at the soft cap is what unlocked Retry while the server still returned 409.
-export function recoveryPollAction(polls: number, messages: readonly StatusRow[]): "continue" | "give-up" {
-  if (polls >= recoveryHardMaxPolls) return "give-up";
+// At the hard cap, ask for one authoritative read first. A row that is still streaming after that read stays locked.
+export function recoveryPollAction(polls: number, messages: readonly StatusRow[], finalCheckDone = false): "continue" | "final-check" | "give-up" | "hold" {
+  if (polls >= recoveryHardMaxPolls) {
+    if (!finalCheckDone) return "final-check";
+    return hasActiveGeneration(messages) ? "hold" : "give-up";
+  }
   if (polls >= recoveryMaxPolls && !hasActiveGeneration(messages)) return "give-up";
   return "continue";
+}
+
+// The hard cap never starts a generation. Streaming stays unresolved; a terminal snapshot may be adopted.
+export function hardCapResolution(messages: readonly StatusRow[]) {
+  if (hasActiveGeneration(messages)) return { locked: true, requestGeneration: false as const, notice: "refresh" as const };
+  return { locked: false, requestGeneration: false as const, notice: null };
 }
 
 // Applies poll snapshots in order, dropping regressive ones, until the awaited generation is terminal.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ChatStreamServerError, readChatSse } from "../../lib/ai/sse";
-import { classifyStreamFailure, hasActiveGeneration, isRecoverySettled, isRegressiveSnapshot, latestReplyFailed, needsServerCheck, reconcileRecovery, recoveryHardMaxPolls, recoveryMaxPolls, recoveryPollAction, unseenGenerationSettled } from "../../lib/chat/recovery";
+import { classifyStreamFailure, hardCapResolution, hasActiveGeneration, isRecoverySettled, isRegressiveSnapshot, latestReplyFailed, needsServerCheck, reconcileRecovery, recoveryHardMaxPolls, recoveryMaxPolls, recoveryPollAction, unseenGenerationSettled } from "../../lib/chat/recovery";
 
 const id = "e3b624e6-d792-47a8-8ff2-46724452c1ca";
 const row = (status: string, extra: Partial<{ id: string; role: string; position: number }> = {}) => ({ id, role: "assistant", position: 2, status, ...extra });
@@ -116,7 +116,24 @@ describe("recovery settlement against fresh server data", () => {
     expect(isRegressiveSnapshot(done, streaming)).toBe(true);
     expect(latestReplyFailed(done)).toBe(false);
     expect(recoveryPollAction(recoveryMaxPolls, done)).toBe("give-up");
-    expect(recoveryPollAction(recoveryHardMaxPolls, streaming)).toBe("give-up");
+    expect(recoveryPollAction(recoveryHardMaxPolls, streaming)).toBe("final-check");
+    expect(recoveryPollAction(recoveryHardMaxPolls, done, true)).toBe("give-up");
+  });
+
+  it("does not unlock Retry when the hard cap's authoritative snapshot is still streaming", () => {
+    const streaming = [user, row("streaming")];
+    expect(recoveryPollAction(recoveryHardMaxPolls, streaming, false)).toBe("final-check");
+    expect(recoveryPollAction(recoveryHardMaxPolls, streaming, true)).toBe("hold");
+    const held = hardCapResolution(streaming);
+    expect(held).toEqual({ locked: true, requestGeneration: false, notice: "refresh" });
+    const recovery = reconcileRecovery({ assistantId: id, baseline: streaming, snapshots: [streaming] });
+    expect(recovery.locked).toBe(true);
+    expect(recovery.adopted).toBeNull();
+    expect(hasActiveGeneration(streaming)).toBe(true);
+
+    const interrupted = [user, row("interrupted")];
+    expect(hardCapResolution(interrupted)).toEqual({ locked: false, requestGeneration: false, notice: null });
+    expect(recoveryPollAction(recoveryHardMaxPolls, interrupted, true)).toBe("give-up");
   });
 
   it("follows Stop, then Retry, then success: only the final saved state matters", () => {

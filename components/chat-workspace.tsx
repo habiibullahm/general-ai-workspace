@@ -31,6 +31,7 @@ type Recovery = { conversationId: string; assistantId: string | null; baseline: 
 const failureNotice = "Nibie couldn't complete that response. Please try again.";
 const unconfirmedNotice = "We couldn't confirm that response. Reload the page to check it.";
 const stillFinishingNotice = "A response is still finishing. It will appear here when it's done.";
+const checkAgainNotice = "This response is still in progress. Refresh the page to check it again.";
 const droppedConnectionNotice = "The connection dropped. Checking whether your response was saved…";
 const suggestions = ["Help me think through an idea", "Write something with me", "Explain a new topic"];
 const noConversations: ConversationSummary[] = [];
@@ -204,15 +205,43 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
     if (!recoveryConversationId) return;
     const epoch = recoveryEpoch.current;
     let polls = 0;
+    let awaitingFinal = false;
+    let snapshotAtFinal: PersistedMessage[] | null = null;
+    let finalWaits = 0;
+    const readAuthoritative = () => {
+      const data = latestData.current;
+      if (data && data.activeId === recoveryConversationId) return data.messages;
+      return acceptedMessagesRef.current;
+    };
     router.refresh();
     const timer = setInterval(() => {
       if (epoch !== recoveryEpoch.current) { clearInterval(timer); return; }
-      polls += 1;
-      if (recoveryPollAction(polls, acceptedMessagesRef.current) === "give-up") {
+      const authoritative = readAuthoritative();
+      if (awaitingFinal) {
+        finalWaits += 1;
+        const arrived = authoritative !== snapshotAtFinal;
+        if (!arrived && finalWaits < 4) return;
         clearInterval(timer);
-        const messages = acceptedMessagesRef.current;
+        // A streaming row after the authoritative read is still in progress. Stop polling, but do not unlock Retry.
+        if (!arrived || hasActiveGeneration(authoritative)) { setNotice(checkAgainNotice); return; }
         setRecovery(null);
-        setNotice(hasActiveGeneration(messages) || !messages.some((message) => message.role === "assistant" && message.status && message.status !== "streaming") ? unconfirmedNotice : latestReplyFailed(messages) ? failureNotice : "");
+        setNotice(latestReplyFailed(authoritative) ? failureNotice : "");
+        return;
+      }
+      polls += 1;
+      const action = recoveryPollAction(polls, authoritative);
+      if (action === "final-check") {
+        awaitingFinal = true;
+        snapshotAtFinal = authoritative;
+        router.refresh();
+        return;
+      }
+      if (action === "give-up") {
+        clearInterval(timer);
+        const messages = authoritative;
+        if (hasActiveGeneration(messages)) { setNotice(checkAgainNotice); return; }
+        setRecovery(null);
+        setNotice(!messages.some((message) => message.role === "assistant" && message.status && message.status !== "streaming") ? unconfirmedNotice : latestReplyFailed(messages) ? failureNotice : "");
         return;
       }
       router.refresh();
