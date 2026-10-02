@@ -5,6 +5,11 @@ import { expect, test, type Page } from "@playwright/test";
 const theme = (page: Page) => page.evaluate(() => document.documentElement.getAttribute("data-theme"));
 const background = (page: Page) => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
 
+async function openThemeSettings(page: Page) {
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
+}
+
 test.describe("theme", () => {
   test("is dark by default, including on a device that prefers light", async ({ browser }) => {
     const context = await browser.newContext({ colorScheme: "light" });
@@ -40,6 +45,7 @@ test.describe("theme", () => {
   test("can be switched in the workspace and is remembered after a reload", async ({ page }) => {
     await page.goto("/preview");
     expect(await theme(page)).toBe("dark");
+    await openThemeSettings(page);
     const dark = page.getByRole("button", { name: "Dark theme" }).first();
     const light = page.getByRole("button", { name: "Light theme" }).first();
     await expect(dark).toHaveAttribute("aria-pressed", "true");
@@ -48,6 +54,7 @@ test.describe("theme", () => {
     await expect(light).toHaveAttribute("aria-pressed", "true");
     await page.reload();
     expect(await theme(page)).toBe("light");
+    await openThemeSettings(page);
     await expect(page.getByRole("button", { name: "Light theme" }).first()).toHaveAttribute("aria-pressed", "true");
     await page.getByRole("button", { name: "Dark theme" }).first().click();
     await page.reload();
@@ -58,6 +65,7 @@ test.describe("theme", () => {
     const context = await browser.newContext({ colorScheme: "light" });
     const page = await context.newPage();
     await page.goto("/preview");
+    await openThemeSettings(page);
     await page.getByRole("button", { name: "System theme" }).first().click();
     expect(await theme(page)).toBe("light");
     await page.emulateMedia({ colorScheme: "dark" });
@@ -76,6 +84,7 @@ test.describe("theme", () => {
       return [".message-content.user p", ".markdown p", ".message-author", ".history-item.is-active"].map((selector) => ratio(channels(getComputedStyle(document.querySelector(selector)!).color), bg));
     });
     for (const ratio of await contrast()) expect(ratio).toBeGreaterThan(4.5);
+    await openThemeSettings(page);
     await page.getByRole("button", { name: "Light theme" }).first().click();
     for (const ratio of await contrast()) expect(ratio).toBeGreaterThan(4.5);
   });

@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { ThemeSync } from "@/components/theme-switcher";
 import { getProductName } from "@/lib/config/branding";
 import { themeInitScript } from "@/lib/theme";
 import "./globals.css";
@@ -19,7 +20,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     // data-theme is set before first paint by the script (it may change the attribute after the server rendered "dark").
     <html lang="en" data-theme="dark" suppressHydrationWarning>
       <head><script dangerouslySetInnerHTML={{ __html: themeInitScript }} /></head>
-      <body>{children}</body>
+      <body><ThemeSync />{children}</body>
     </html>
   );
 }

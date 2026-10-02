@@ -43,7 +43,7 @@ test("mobile chat workspace uses a keyboard-accessible conversation drawer", asy
   await page.getByRole("button", { name: "Open conversation menu" }).click();
   const menu = page.getByRole("dialog", { name: "Conversation menu" });
   await expect(menu.getByRole("button", { name: "Close menu" })).toBeFocused();
-  await menu.getByRole("button", { name: "System theme" }).focus();
+  await menu.getByRole("button", { name: "Settings", exact: true }).focus();
   await page.keyboard.press("Tab");
   await expect(menu.getByRole("link", { name: "Nibie home" })).toBeFocused();
   await page.getByRole("button", { name: "Learning the basics of astronomy" }).click();
