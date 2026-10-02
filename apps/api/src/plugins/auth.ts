@@ -7,6 +7,16 @@ export type VerifiedToken = { sub: string };
 export type TokenVerifier = (token: string) => Promise<VerifiedToken | null>;
 
 const publicRoutes = new Set(["GET /health", "GET /v1/health"]);
+const verifiedAccessTokens = new WeakMap<FastifyRequest, string>();
+
+export function isPublicApiRoute(method: string | string[], url: string) {
+  const methods = Array.isArray(method) ? method : [method];
+  return methods.every((item) => publicRoutes.has(`${item} ${url}`));
+}
+
+export function readVerifiedAccessToken(request: FastifyRequest) {
+  return verifiedAccessTokens.get(request) ?? null;
+}
 
 export function createSupabaseTokenVerifier(config: ApiConfig): TokenVerifier {
   return async (token) => {
@@ -37,7 +47,7 @@ export function registerAuth(app: FastifyInstance, verifyToken: TokenVerifier) {
   });
 
   app.addHook("onRoute", (routeOptions) => {
-    if (isPublicRouteOptions(routeOptions.method, routeOptions.url)) return;
+    if (isPublicApiRoute(routeOptions.method, routeOptions.url)) return;
 
     const authenticate = async (request: FastifyRequest) => {
       const token = bearerToken(request.headers.authorization);
@@ -51,6 +61,7 @@ export function registerAuth(app: FastifyInstance, verifyToken: TokenVerifier) {
       }
 
       if (!verified?.sub) throw new ApiError(401, "unauthorized", "Authentication required.");
+      verifiedAccessTokens.set(request, token);
       request.auth = { userId: verified.sub };
     };
 
@@ -63,11 +74,6 @@ export function registerAuth(app: FastifyInstance, verifyToken: TokenVerifier) {
     const handlers = Array.isArray(current) ? current : [current];
     routeOptions.preHandler = [...handlers, authenticate];
   });
-}
-
-function isPublicRouteOptions(method: string | string[], url: string) {
-  const methods = Array.isArray(method) ? method : [method];
-  return methods.every((item) => publicRoutes.has(`${item} ${url}`));
 }
 
 function bearerToken(header: string | undefined) {

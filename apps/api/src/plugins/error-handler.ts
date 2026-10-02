@@ -33,6 +33,16 @@ export function registerErrorHandler(app: FastifyInstance) {
       return;
     }
 
+    if (error.code === "FST_ERR_CTP_INVALID_MEDIA_TYPE" || error.statusCode === 415) {
+      sendError(reply, request.id, 415, "unsupported_media_type", "A JSON request is required.");
+      return;
+    }
+
+    if (error.code === "FST_ERR_CTP_BODY_TOO_LARGE" || error.statusCode === 413) {
+      sendError(reply, request.id, 400, "validation_error");
+      return;
+    }
+
     if (error.validation || error.code === "FST_ERR_CTP_INVALID_JSON" || error.statusCode === 400) {
       sendError(reply, request.id, 400, "validation_error");
       return;
