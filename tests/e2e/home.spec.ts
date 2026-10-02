@@ -1,13 +1,85 @@
 import { expect, test } from "@playwright/test";
 
-test("unauthenticated visitors are sent to sign in", async ({ page }) => {
+test("the public landing page does not require authentication", async ({ page }) => {
   await page.goto("/");
+  await expect(page).toHaveURL((url) => url.pathname === "/");
+  await expect(page).toHaveTitle("Nibie");
+  await expect(page.getByRole("heading", { level: 1, name: "A quieter place to think with AI." })).toBeVisible();
+  const opens = page.getByRole("link", { name: "Open Nibie" });
+  await expect(opens).toHaveCount(3);
+  for (const link of await opens.all()) await expect(link).toHaveAttribute("href", "/chat");
+  await expect(page.locator(".landing-hero").getByRole("link", { name: "Open Nibie" })).toHaveAttribute("href", "/chat");
+  await expect(page.getByRole("link", { name: "See how it works" })).toHaveAttribute("href", "#product");
+});
+
+test("landing page has no horizontal overflow", async ({ page }) => {
+  await page.goto("/");
+  for (const width of [390, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  const frame = await page.locator(".landing-frame").boundingBox();
+  expect(frame?.width).toBeGreaterThan(300);
+  expect(frame?.height).toBeGreaterThan(400);
+  const message = page.locator(".landing-frame .message-content").first();
+  const messageBox = await message.boundingBox();
+  expect(messageBox?.height).toBeGreaterThan(20);
+});
+
+test("unauthenticated visitors to the workspace are sent to sign in", async ({ page }) => {
+  await page.goto("/chat");
   await expect(page).toHaveURL((url) => url.pathname === "/login");
   await expect(page).toHaveTitle("Nibie");
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Nibie" })).toBeVisible();
   await expect(page.getByLabel("Email")).toBeVisible();
   await expect(page.getByLabel("Password")).toBeVisible();
+});
+
+test("an authenticated session can still open the landing page", async ({ page }) => {
+  test.skip(!process.env.E2E_USER_EMAIL || !process.env.E2E_USER_PASSWORD, "Requires a dedicated authenticated test account.");
+  await page.goto("/login");
+  await page.getByLabel("Email", { exact: true }).fill(process.env.E2E_USER_EMAIL!);
+  await page.getByLabel("Password", { exact: true }).fill(process.env.E2E_USER_PASSWORD!);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page).toHaveURL((url) => url.pathname === "/chat", { timeout: 20_000 });
+  await page.goto("/");
+  await expect(page).toHaveURL((url) => url.pathname === "/");
+  await expect(page.getByRole("heading", { level: 1, name: "A quieter place to think with AI." })).toBeVisible();
+});
+
+
+test("a saved root conversation link enters the workspace route", async ({ request }) => {
+  const id = "6f0c1c3e-9a0b-4d1e-8f2a-1b2c3d4e5f60";
+  const response = await request.get(`/?conversation=${id}`, { maxRedirects: 0 });
+  expect(response.status()).toBe(307);
+  expect(response.headers().location).toBe(`/chat?conversation=${id}`);
+});
+
+test("the marketing page stays put without a conversation id", async ({ request }) => {
+  const response = await request.get("/?conversation=not-a-conversation", { maxRedirects: 0 });
+  expect(response.status()).toBe(200);
+});
+
+test("landing controls are reachable from the keyboard", async ({ page }) => {
+  await page.goto("/");
+  await page.keyboard.press("Tab");
+  const skip = page.getByRole("link", { name: "Skip to content" });
+  await expect(skip).toBeFocused();
+  await page.keyboard.press("Tab");
+  const brand = page.getByRole("link", { name: "Nibie", exact: true });
+  await expect(brand).toBeFocused();
+  const outline = await brand.evaluate((element) => getComputedStyle(element).outlineStyle);
+  expect(outline).not.toBe("none");
+});
+
+test("sign-in has no horizontal overflow on a phone", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/chat");
+  await expect(page).toHaveURL((url) => url.pathname === "/login");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
+  await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
 });
 
 test("sign-up page provides an account creation form", async ({ page }) => {

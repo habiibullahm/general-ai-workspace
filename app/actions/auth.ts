@@ -6,6 +6,7 @@ import { getPublicAppUrl } from "@/lib/config/app-url";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { credentialsSchema, type AuthActionState } from "@/lib/auth/validation";
 import { SIGN_OUT_SCOPE } from "@/lib/privacy/sign-out";
+import { chatPath } from "@/lib/routes";
 
 function readCredentials(formData: FormData) {
   const result = credentialsSchema.safeParse({
@@ -31,7 +32,7 @@ export async function signInAction(
   }
 
   revalidatePath("/", "layout");
-  redirect("/");
+  redirect(chatPath);
 }
 
 export async function signUpAction(
@@ -56,7 +57,7 @@ export async function signUpAction(
   }
 
   revalidatePath("/", "layout");
-  redirect("/");
+  redirect(chatPath);
 }
 
 export async function signOutAction() {

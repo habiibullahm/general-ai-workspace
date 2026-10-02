@@ -14,7 +14,7 @@ async function login(page: Page) {
   await page.getByLabel("Email", { exact: true }).fill(email!);
   await page.getByLabel("Password", { exact: true }).fill(password!);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(page).toHaveURL((url) => url.pathname === "/", { timeout: 20_000 });
+  await expect(page).toHaveURL((url) => url.pathname === "/chat", { timeout: 20_000 });
 }
 
 function chatResponse(page: Page) {

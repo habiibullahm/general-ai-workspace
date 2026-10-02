@@ -16,8 +16,8 @@ export async function removeConversation(page: Page, url: string | undefined) {
   const id = conversationIdFromUrl(url);
   if (!id) return;
   await page.unrouteAll({ behavior: "ignoreErrors" });
-  await page.goto(`/?conversation=${encodeURIComponent(id)}`);
-  await expect(page).toHaveURL(new RegExp(`conversation=${id}`));
+  await page.goto(`/chat?conversation=${encodeURIComponent(id)}`);
+  await expect(page).toHaveURL((url) => url.pathname === "/chat" && url.searchParams.get("conversation") === id);
   const remove = page.locator(".desktop-sidebar").locator(`[data-conversation-id="${id}"]`).getByRole("button", { name: /^Delete / });
   if (await remove.count() !== 1) return;
   page.once("dialog", (dialog) => dialog.accept());

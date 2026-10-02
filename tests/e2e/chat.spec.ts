@@ -15,12 +15,13 @@ test("authenticated provider response survives refresh, reopen, and sign-in agai
     await page.getByLabel("Email", { exact: true }).fill(email);
     await page.getByLabel("Password", { exact: true }).fill(password);
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
-    await expect(page).toHaveURL((url) => url.pathname === "/", { timeout: 20_000 });
+    await expect(page).toHaveURL((url) => url.pathname === "/chat", { timeout: 20_000 });
   }
 
   try {
     await login();
     await page.getByRole("button", { name: "New chat", exact: true }).first().click();
+    await expect(page).toHaveURL((url) => url.pathname === "/chat" && !url.searchParams.has("conversation"));
     await expect(page.getByRole("heading", { name: "What’s on your mind?" })).toBeVisible();
     const responsePromise = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/chat" && response.request().method() === "POST", { timeout: 130_000 });
     await page.getByRole("textbox", { name: "Message Nibie" }).fill(prompt);
@@ -28,7 +29,7 @@ test("authenticated provider response survives refresh, reopen, and sign-in agai
     const response = await responsePromise;
     expect(response.status()).toBe(200);
     // New chat is lazy: the conversation (and its URL) is created together with the first message.
-    await expect(page).toHaveURL(/conversation=/);
+    await expect(page).toHaveURL((url) => url.pathname === "/chat" && Boolean(url.searchParams.get("conversation")));
     conversationUrl = page.url();
     expect(response.headers()["content-type"]).toContain("text/event-stream");
     const stream = await response.text();
@@ -48,9 +49,9 @@ test("authenticated provider response survives refresh, reopen, and sign-in agai
     expect(title).toBeTruthy();
     const conversationId = conversationIdFromUrl(conversationUrl);
     expect(conversationId).toBeTruthy();
-    await page.goto("/");
+    await page.goto("/chat");
     await page.locator(".desktop-sidebar").locator(`[data-conversation-id="${conversationId}"]`).locator(".history-item").click();
-    await expect(page).toHaveURL(new RegExp(`conversation=${conversationId}`));
+    await expect(page).toHaveURL((url) => url.pathname === "/chat" && url.searchParams.get("conversation") === conversationId);
     await expect(page.locator(".message-row.assistant .markdown").last()).toHaveText(answer!);
     await page.locator(".desktop-sidebar .account-profile").hover();
     await page.locator(".desktop-sidebar").getByRole("button", { name: "Sign out everywhere", exact: true }).click();

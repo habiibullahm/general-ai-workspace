@@ -1,0 +1,62 @@
+.landing { overflow-x: clip; background: var(--bg-app); color: var(--text); }
+.skip-link { position: absolute; left: 16px; top: 12px; z-index: 6; transform: translateY(-160%); padding: 8px 12px; border-radius: 8px; background: var(--primary-bg); color: var(--primary-fg); text-decoration: none; }
+.skip-link:focus { transform: none; }
+.landing-header { position: sticky; top: 0; z-index: 4; background: color-mix(in srgb, var(--bg-app) 92%, transparent); }
+.landing-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px 20px; flex-wrap: wrap; width: min(1120px, 100%); margin: 0 auto; padding: 16px 28px; }
+.landing-nav-links { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 18px; min-width: 0; }
+.landing-nav-links > a:not(.landing-button) { display: inline-flex; align-items: center; min-height: 40px; color: var(--text-2); font-size: 14px; text-decoration: none; }
+.landing-nav-links > a:not(.landing-button):hover { color: var(--text); }
+.landing-button { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 0 14px; border: 1px solid transparent; border-radius: 10px; background: var(--primary-bg); color: var(--primary-fg); font-size: 14px; font-weight: 550; text-decoration: none; }
+.landing-button:hover { background: var(--primary-bg-hover); }
+.landing-button-secondary { background: transparent; color: var(--text); border-color: var(--border-strong); }
+.landing-button-secondary:hover { background: var(--hover); }
+.landing-hero, .landing-section, .landing-final { width: min(1120px, 100%); margin: 0 auto; padding: 28px; }
+.landing-hero { padding-top: 72px; padding-bottom: 20px; }
+.landing-kicker { margin: 0 0 16px; color: var(--accent); font-size: 12px; font-weight: 650; letter-spacing: .14em; text-transform: uppercase; }
+.landing-hero h1, .landing-quote h2, .landing-final h2, .landing-section-copy h2, .landing-card h3 { margin: 0; max-width: 100%; color: var(--text); overflow-wrap: break-word; }
+.landing-hero h1, .landing-quote h2, .landing-final h2 { font-family: Georgia, "Times New Roman", serif; font-weight: 400; letter-spacing: -.04em; line-height: 1.08; }
+.landing-hero h1 { max-width: min(11em, 100%); font-size: clamp(40px, 6vw, 68px); }
+.landing-lede, .landing-section-copy p, .landing-card p, .landing-quote p, .landing-final p { color: var(--text-2); font-size: 16px; line-height: 1.65; }
+.landing-lede { max-width: 42rem; margin: 18px 0 0; font-size: 18px; }
+.landing-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+.landing-section { scroll-margin-top: 84px; padding-top: 36px; }
+.landing-section-copy { max-width: 40rem; margin-bottom: 22px; }
+.landing-section-copy h2, .landing-card h3, .landing-card dt { color: var(--text); }
+.landing-section-copy h2 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: clamp(28px, 4vw, 40px); font-weight: 400; letter-spacing: -.03em; line-height: 1.15; }
+.landing-section-copy p { margin: 12px 0 0; }
+.landing-figure { margin: 0; }
+.landing-frame .history-group p { margin: 0 9px 8px; color: var(--text-4); font-size: 10px; line-height: 1.4; letter-spacing: .09em; text-transform: uppercase; font-weight: 650; }
+.landing-frame { height: 560px; overflow: hidden; border: 1px solid var(--border); border-radius: 18px; background: var(--bg-sidebar); box-shadow: var(--shadow-sm); }
+.landing-frame .chat-workspace { height: 100%; min-height: 0; }
+.landing-frame .send-button { background: var(--disabled-bg); color: var(--disabled-fg); }
+.landing-frame .conversation-scroll { padding-bottom: 132px; }
+.landing-composer-placeholder { margin: 0; padding: 4px 2px 6px; color: var(--text-4); font-size: 13px; line-height: 1.55; }
+.landing-modes { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.landing-modes span { display: inline-flex; align-items: center; min-height: 30px; padding: 0 10px; border-radius: 8px; background: var(--bg-subtle); color: var(--text-3); font-size: 12px; }
+.landing-modes span.is-selected { background: var(--active); color: var(--text); box-shadow: inset 0 0 0 1px var(--border-strong); }
+.landing-menu-glyph { width: 14px; height: 1.5px; background: currentColor; box-shadow: 0 -5px 0 currentColor, 0 5px 0 currentColor; }
+.landing-figure figcaption { margin-top: 10px; color: var(--text-3); font-size: 13px; line-height: 1.5; }
+.landing-grid { display: grid; gap: 12px; margin: 0; }
+.landing-grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.landing-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.landing-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.landing-card { min-width: 0; padding: 18px 16px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg-raised); }
+.landing-card h3, .landing-card dt { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -.02em; }
+.landing-card p, .landing-card dd { margin: 8px 0 0; }
+.landing-quote { padding-top: 48px; padding-bottom: 20px; }
+.landing-quote h2 { max-width: min(16em, 100%); font-size: clamp(32px, 5vw, 52px); }
+.landing-quote p { max-width: 38rem; margin: 16px 0 0; }
+.landing-final { padding-top: 28px; padding-bottom: 88px; }
+.landing-final h2 { max-width: min(10em, 100%); font-size: clamp(36px, 5vw, 56px); }
+.landing-final p { max-width: 32rem; margin: 14px 0 22px; }
+@media (max-width: 1024px) {
+  .landing-grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .landing-grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  .landing-nav, .landing-hero, .landing-section, .landing-final { padding-left: 20px; padding-right: 20px; }
+  .landing-hero { padding-top: 40px; }
+  .landing-lede { font-size: 16px; }
+  .landing-frame { height: 500px; }
+  .landing-grid-4, .landing-grid-3, .landing-grid-2 { grid-template-columns: 1fr; }
+}

@@ -1,0 +1,22 @@
+import { requireAuthenticatedUser } from "@/lib/auth/require-user";
+import { ChatWorkspace } from "@/components/chat-workspace";
+import { getChatWorkspaceData } from "@/lib/chat/read";
+import { getModelOptions } from "@/lib/ai/registry";
+import { readOwnerPreferences } from "@/lib/preferences/store";
+import { requestTime } from "@/lib/chat/groups";
+
+export const dynamic = "force-dynamic";
+
+export default async function ChatPage({ searchParams }: { searchParams: Promise<{ conversation?: string }> }) {
+  const params = await searchParams;
+  // Verifying the session and loading the owner's data are independent round trips, so they run together.
+  // Preferences are one owner row read in parallel; a failure falls back to defaults and does not block the workspace.
+  const [user, data, preferenceState] = await Promise.all([
+    requireAuthenticatedUser(),
+    getChatWorkspaceData(params.conversation),
+    readOwnerPreferences(),
+  ]);
+  // Only configured modes are offered; this reads environment variable names, never the provider URL or key.
+  const { models, reasoningModes } = getModelOptions();
+  return <ChatWorkspace email={user.email ?? "Your account"} initialData={data} models={models} reasoningModes={reasoningModes} renderedAt={requestTime()} preferences={preferenceState.preferences} preferencesError={preferenceState.error} />;
+}

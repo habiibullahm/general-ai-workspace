@@ -16,6 +16,7 @@ import type { ConversationSummary, PersistedMessage } from "@/lib/chat/read";
 import type { ChatModel } from "@/lib/chat/validation";
 import type { ModelOption } from "@/lib/chat/models";
 import { decideRestoredConversation } from "@/lib/chat/preferences";
+import { chatPath, conversationPath } from "@/lib/routes";
 import { clearStoredConversationReference } from "@/lib/privacy/local-state";
 import { modelForComposer } from "@/lib/preferences/model";
 import { defaultUserPreferences, type UserPreferences } from "@/lib/preferences/types";
@@ -193,7 +194,7 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
     setMode(modelForComposer({ hasConversation: true, conversationModel: item.selected_model, accountDefault: savedPreferences.defaultModel, available: availableModes }) ?? "Balanced");
     pinLatestRef.current = true;
     setPendingId(item.id);
-    router.replace(`/?conversation=${encodeURIComponent(item.id)}`, { scroll: false });
+    router.replace(conversationPath(item.id), { scroll: false });
   }, [availableModes, preview, router, savedPreferences.defaultModel]);
   useEffect(() => {
     if (preview || !activeId || !shownConversations.some((item) => item.id === activeId)) return;
@@ -282,7 +283,7 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
       setMode(modeFor(undefined, false));
     }
     if (preview) setPreviewActiveId(id);
-    else { setPendingId(id); router.push(id ? `/?conversation=${encodeURIComponent(id)}` : "/"); }
+    else { setPendingId(id); router.push(id ? conversationPath(id) : chatPath); }
     requestAnimationFrame(() => menuButtonRef.current?.focus());
   });
   // New chat opens the empty conversation immediately. The conversation row is created with the first message, so there is no
@@ -400,7 +401,7 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
         setLocalConversations((items) => [conversation, ...items]);
         setLocalMessages((items) => { const { "": rows = [], ...rest } = items; return { ...rest, [conversation.id]: rows }; });
         setPendingId(conversation.id);
-        router.push(`/?conversation=${encodeURIComponent(conversation.id)}`);
+        router.push(conversationPath(conversation.id));
       } else {
         const result = await addUserMessageAction(id, content, messageId);
         if (result.error || !result.data) { rollback(result.error ?? "Message couldn't be saved.", id); return; }

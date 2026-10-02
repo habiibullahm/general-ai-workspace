@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { chatPath } from "@/lib/routes";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function GET(request: Request) {
@@ -9,5 +10,5 @@ export async function GET(request: Request) {
   const { error } = await supabase.auth.exchangeCodeForSession(code);
 
   if (error) redirect("/login");
-  redirect("/");
+  redirect(chatPath);
 }
