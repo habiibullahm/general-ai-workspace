@@ -1,4 +1,4 @@
-export {
+import {
   DELETE_ALL_CONFIRMATION,
   EXPORT_PAGE_SIZE,
   EXPORT_PRODUCT,
@@ -6,7 +6,15 @@ export {
   SIGN_OUT_SCOPE,
   isDeleteAllConfirmed,
 } from "./account-constants.js";
-import { EXPORT_PAGE_SIZE, EXPORT_PRODUCT, EXPORT_VERSION } from "./account-constants.js";
+
+export {
+  DELETE_ALL_CONFIRMATION,
+  EXPORT_PAGE_SIZE,
+  EXPORT_PRODUCT,
+  EXPORT_VERSION,
+  SIGN_OUT_SCOPE,
+  isDeleteAllConfirmed,
+};
 
 const roles = new Set(["user", "assistant"]);
 const statuses = new Set(["complete", "streaming", "interrupted", "error"]);
