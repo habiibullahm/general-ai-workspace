@@ -94,7 +94,7 @@ test.describe("brand", () => {
   test("shows the lowercase wordmark with the logo mark and keeps a clean, consistent name", async ({ page }) => {
     await page.goto("/login");
     const brand = page.getByRole("link", { name: "Nibie", exact: true });
-    await expect(brand).toContainText("nibie");
+    await expect(brand).toContainText("Nibie");
     await expect(brand.locator(".brand-mark svg")).toBeVisible();
     await expect(page).toHaveTitle("Nibie");
     await expect(page.locator('link[rel~="icon"]').first()).toHaveAttribute("href", /icon/);
