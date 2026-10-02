@@ -2,23 +2,13 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { getPublicAppUrl } from "@/lib/config/app-url";
-import { getSupabasePublicConfig } from "@/lib/config/supabase";
+import { createGoogleOAuthUrl } from "@/lib/auth/google";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { credentialsSchema, type AuthActionState } from "@/lib/auth/validation";
 import { SIGN_OUT_SCOPE } from "@/lib/privacy/sign-out";
 import { chatPath } from "@/lib/routes";
-
-function allowedOAuthUrl(value: string, supabaseUrl: string) {
-  try {
-    const target = new URL(value);
-    const allowed = new URL(supabaseUrl);
-    if (target.origin !== allowed.origin || !target.pathname.startsWith("/auth/v1/")) return null;
-    return target.toString();
-  } catch {
-    return null;
-  }
-}
 
 function readCredentials(formData: FormData) {
   const result = credentialsSchema.safeParse({
@@ -56,16 +46,11 @@ export async function signInWithGoogleAction(
   let redirectUrl: string | null = null;
 
   try {
-    const supabase = await createSupabaseServerClient();
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: new URL("/auth/callback", getPublicAppUrl()).toString(),
-        skipBrowserRedirect: true,
-        queryParams: { prompt: "select_account" },
-      },
-    });
-    const url = !error && data.url ? allowedOAuthUrl(data.url, getSupabasePublicConfig().url) : null;
+    const headerStore = await headers();
+    const host = headerStore.get("x-forwarded-host") ?? headerStore.get("host");
+    const proto = headerStore.get("x-forwarded-proto") ?? "https";
+    const requestUrl = host ? `${proto}://${host}/auth/google` : getPublicAppUrl();
+    const url = await createGoogleOAuthUrl(requestUrl);
     if (!url) return { error: "Google sign-in is temporarily unavailable. Please try again later." };
     redirectUrl = url;
   } catch {

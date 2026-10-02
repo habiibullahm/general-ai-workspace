@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import Link from "next/link";
-import { signInAction, signInWithGoogleAction, signUpAction } from "@/app/actions/auth";
+import { signInAction, signUpAction } from "@/app/actions/auth";
 import { Brand } from "@/components/brand";
 import type { AuthActionState } from "@/lib/auth/validation";
 
@@ -12,8 +12,6 @@ export function AuthForm({ mode, productName, oauthError = false }: Props) {
   const isSignUp = mode === "sign-up";
   const action = isSignUp ? signUpAction : signInAction;
   const [state, formAction, pending] = useActionState<AuthActionState | null, FormData>(action, null);
-  const [googleState, googleAction, googlePending] = useActionState<AuthActionState | null, FormData>(signInWithGoogleAction, null);
-  const busy = pending || googlePending;
 
   return (
     <main className="auth-page">
@@ -22,12 +20,11 @@ export function AuthForm({ mode, productName, oauthError = false }: Props) {
         <h1 className="auth-title">{isSignUp ? "Create your account" : "Sign in"}</h1>
         <p className="auth-subtitle">{isSignUp ? "A quiet space for your conversations." : "Continue to your workspace."}</p>
 
-        <form action={googleAction} className="auth-providers">
-          {googleState?.error && <p role="alert" className="auth-error">{googleState.error}</p>}
-          {!googleState?.error && oauthError && <p role="alert" className="auth-error">Sign-in could not be completed. Please try again.</p>}
-          <button className="auth-google" disabled={busy} type="submit">
+        <form action="/auth/google" className="auth-providers" method="get">
+          {oauthError && <p role="alert" className="auth-error">Sign-in could not be completed. Please try again.</p>}
+          <button className="auth-google" disabled={pending} type="submit">
             <GoogleMark />
-            {googlePending ? "Please wait…" : "Continue with Google"}
+            Continue with Google
           </button>
         </form>
         <p className="auth-divider">or</p>
@@ -43,7 +40,7 @@ export function AuthForm({ mode, productName, oauthError = false }: Props) {
           </div>
           {state?.error && <p role="alert" className="auth-error">{state.error}</p>}
           {state?.message && <p role="status" className="auth-message">{state.message}</p>}
-          <button className="auth-submit" disabled={busy} type="submit">
+          <button className="auth-submit" disabled={pending} type="submit">
             {pending ? "Please wait…" : isSignUp ? "Create account" : "Sign in"}
           </button>
         </form>

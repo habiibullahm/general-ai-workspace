@@ -31,6 +31,14 @@ export type RoomSummary = {
 };
 export type PersistedMessage = { id: string; role: "user" | "assistant"; content: string; position: number; status?: "complete" | "streaming" | "interrupted" | "error"; created_at?: string };
 
+type QueryError = { code?: string; message?: string } | null;
+
+// PostgREST reports a missing rooms column or table this way. History must still load for a signed-in account.
+function schemaUnavailable(error: QueryError) {
+  if (!error) return false;
+  return error.code === "42703" || error.code === "42P01" || error.code === "PGRST204" || error.code === "PGRST205";
+}
+
 export async function getChatWorkspaceData(conversationId: unknown) {
   const supabase = await createSupabaseServerClient();
   const parsedId = validateConversationId(conversationId);
@@ -39,15 +47,16 @@ export async function getChatWorkspaceData(conversationId: unknown) {
     .select("id,role,content,position,status,created_at")
     .eq("conversation_id", id)
     .order("position", { ascending: true });
+  const orderedConversations = (columns: string) => supabase
+    .from("conversations")
+    .select(columns)
+    .order("updated_at", { ascending: false })
+    .order("id", { ascending: true });
 
   // The history list and the selected conversation's messages are independent reads, so they run together.
   // RLS scopes both to the signed-in owner; messages are only used when the conversation is in the owner's list.
-  const [{ data: conversations, error: conversationsError }, { data: roomRows, error: roomsError }, { data: briefRows, error: briefsError }, messagesResult] = await Promise.all([
-    supabase
-      .from("conversations")
-      .select("id,title,selected_model,room_id,created_at,updated_at")
-      .order("updated_at", { ascending: false })
-      .order("id", { ascending: true }),
+  const [conversationResult, { data: roomRows, error: roomsError }, { data: briefRows, error: briefsError }, messagesResult] = await Promise.all([
+    orderedConversations("id,title,selected_model,room_id,created_at,updated_at"),
     supabase
       .from("rooms")
       .select("id,name,description,instructions,created_at,updated_at")
@@ -58,17 +67,26 @@ export async function getChatWorkspaceData(conversationId: unknown) {
       .select("room_id,goal,current_focus,important_decisions,open_questions,next_step"),
     parsedId.success ? readMessages(parsedId.data) : Promise.resolve(null),
   ]);
+  const legacyConversations = schemaUnavailable(conversationResult.error)
+    ? await orderedConversations("id,title,selected_model,created_at,updated_at")
+    : null;
+  const conversationRows = legacyConversations && !legacyConversations.error
+    ? ((legacyConversations.data ?? []) as unknown as Omit<ConversationSummary, "room_id">[]).map((row) => ({ ...row, room_id: null }))
+    : conversationResult.data;
+  const conversationsError = legacyConversations ? legacyConversations.error : conversationResult.error;
   const empty = { conversations: [] as ConversationSummary[], rooms: [] as RoomSummary[], messages: [] as PersistedMessage[], activeId: null };
   if (conversationsError) return { ...empty, error: "Conversation history couldn't be loaded. Refresh to try again." };
-  const briefs = new Map((briefRows ?? []).map((brief) => [brief.room_id, {
+  const conversations = (conversationRows ?? []) as ConversationSummary[];
+  const roomsMissing = schemaUnavailable(roomsError) || schemaUnavailable(briefsError);
+  const briefs = new Map(roomsMissing ? [] : (briefRows ?? []).map((brief) => [brief.room_id, {
     goal: brief.goal,
     current_focus: brief.current_focus,
     important_decisions: brief.important_decisions,
     open_questions: brief.open_questions,
     next_step: brief.next_step,
   }]));
-  const rooms: RoomSummary[] = (roomRows ?? []).map((room) => ({ ...room, brief: briefs.get(room.id) ?? null }));
-  const roomError = roomsError || briefsError ? "Rooms couldn't be loaded. Refresh to try again." : null;
+  const rooms: RoomSummary[] = roomsMissing ? [] : (roomRows ?? []).map((room) => ({ ...room, brief: briefs.get(room.id) ?? null }));
+  const roomError = !roomsMissing && (roomsError || briefsError) ? "Rooms couldn't be loaded. Refresh to try again." : null;
 
   const active = parsedId.success ? conversations?.find((item) => item.id === parsedId.data) : undefined;
   if (!active || !messagesResult) return { conversations: conversations ?? [], rooms, messages: [] as PersistedMessage[], activeId: null, error: roomError };
