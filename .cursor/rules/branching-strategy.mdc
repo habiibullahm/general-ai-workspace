@@ -1,0 +1,20 @@
+---
+description: Branch from main in a worktree and keep main fast-forward only
+alwaysApply: true
+---
+
+# Branching strategy
+
+`main` is the production branch. Vercel deploys it. History on `main` only moves forward.
+
+1. Update `main` before starting.
+2. Create the work on a new branch in its own worktree. Leave `main` checked out in the primary directory.
+3. Name the branch and the worktree folder with the same short kebab-case slug:
+   - Feature: `feat/<topic>` — `feat/settings-chat-behavior`
+   - Fix: `fix/<topic>` — `fix/retry-production-lifecycle`
+   - Integration: `integrate/<topic>` — `integrate/settings-v1`
+   - Worktree path: `~/.cursor/worktrees/nibie-code/<topic>`
+4. Commit on that branch and open a pull request into `main`.
+5. Land the change by merging the pull request.
+
+`main` rejects force pushes. Push a feature branch with `git push -u origin HEAD`. A force push to `main` is never allowed, including `--force-with-lease`. If GitHub rejects a push to `main` as a non-fast-forward, stop and report it.
