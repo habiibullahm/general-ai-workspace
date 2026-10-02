@@ -1,19 +1,19 @@
 import {
-  DELETE_ALL_CONFIRMATION,
-  EXPORT_PAGE_SIZE,
-  EXPORT_PRODUCT,
-  EXPORT_VERSION,
-  SIGN_OUT_SCOPE,
-  isDeleteAllConfirmed,
-} from "./account-constants.js";
+  DELETE_ALL_CONFIRMATION as deleteAllConfirmation,
+  EXPORT_PAGE_SIZE as exportPageSize,
+  EXPORT_PRODUCT as exportProduct,
+  EXPORT_VERSION as exportVersion,
+  SIGN_OUT_SCOPE as signOutScope,
+  isDeleteAllConfirmed as confirmDeleteAll,
+} from "./account-constants.ts";
 
 export {
-  DELETE_ALL_CONFIRMATION,
-  EXPORT_PAGE_SIZE,
-  EXPORT_PRODUCT,
-  EXPORT_VERSION,
-  SIGN_OUT_SCOPE,
-  isDeleteAllConfirmed,
+  deleteAllConfirmation as DELETE_ALL_CONFIRMATION,
+  exportPageSize as EXPORT_PAGE_SIZE,
+  exportProduct as EXPORT_PRODUCT,
+  exportVersion as EXPORT_VERSION,
+  signOutScope as SIGN_OUT_SCOPE,
+  confirmDeleteAll as isDeleteAllConfirmed,
 };
 
 const roles = new Set(["user", "assistant"]);
@@ -58,8 +58,8 @@ export type ExportedConversation = {
 };
 
 export type NibieExport = {
-  product: typeof EXPORT_PRODUCT;
-  exportVersion: typeof EXPORT_VERSION;
+  product: typeof exportProduct;
+  exportVersion: typeof exportVersion;
   exportedAt: string;
   conversations: ExportedConversation[];
 };
@@ -70,7 +70,7 @@ export type ExportPage<T> = { data: T[] | null; error: unknown };
 // so the file is never a silent partial copy.
 export async function readAllPages<T extends { id: string }>(
   fetchPage: (from: number, to: number) => Promise<ExportPage<T>>,
-  pageSize = EXPORT_PAGE_SIZE,
+  pageSize = exportPageSize,
 ): Promise<T[] | null> {
   if (pageSize < 1) return null;
   const rows: T[] = [];
@@ -164,8 +164,8 @@ export function buildConversationExport(input: {
   if (grouped.size > 0) return null;
 
   return {
-    product: EXPORT_PRODUCT,
-    exportVersion: EXPORT_VERSION,
+    product: exportProduct,
+    exportVersion,
     exportedAt,
     conversations: exportedConversations,
   };
