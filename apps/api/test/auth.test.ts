@@ -51,6 +51,25 @@ describe("auth", () => {
     await app.close();
   });
 
+  it("does not let a route pass an arbitrary JWT into user-client creation", async () => {
+    const app = await identityApp();
+    app.get("/__test/factory", async (request) => ({
+      userId: request.auth?.userId ?? null,
+      factory: typeof (request as { createUserClient?: unknown }).createUserClient,
+    }));
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/__test/factory",
+      headers: { authorization: "Bearer valid-token" },
+      payload: { jwt: "attacker-token", accessToken: "attacker-token" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ userId: "user-123", factory: "undefined" });
+    await app.close();
+  });
+
   it("uses the verified sub and ignores a body user_id", async () => {
     const app = await identityApp();
     const response = await app.inject({

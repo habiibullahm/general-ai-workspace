@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Writable } from "node:stream";
 import Fastify from "fastify";
 import { createSupabaseTokenVerifier, registerAuth, type TokenVerifier } from "./plugins/auth.js";
@@ -13,7 +13,7 @@ import { registerV1Routes } from "./routes/v1/index.js";
 declare module "fastify" {
   interface FastifyRequest {
     auth: { userId: string } | null;
-    createUserClient: ((jwt: string) => ReturnType<typeof createClient>) | null;
+    supabase: SupabaseClient | null;
   }
 
   interface FastifyInstance {
@@ -48,6 +48,7 @@ export async function buildApp(options: BuildAppOptions) {
     requestIdHeader: false,
   });
 
+  app.removeContentTypeParser("text/plain");
   app.decorate("apiConfig", config);
   registerRequestId(app);
   registerErrorHandler(app);

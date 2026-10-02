@@ -1,25 +1,46 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { FastifyInstance, FastifyRequest } from "fastify";
+import { readVerifiedAccessToken, isPublicApiRoute } from "./auth.js";
+import { ApiError } from "./error-handler.js";
 import type { ApiConfig } from "./env.js";
 
 export function registerSupabase(app: FastifyInstance, config: ApiConfig) {
-  app.decorateRequest("createUserClient", null as FastifyRequest["createUserClient"]);
+  app.decorateRequest("supabase", null as FastifyRequest["supabase"]);
 
-  app.addHook("onRequest", async (request, reply) => {
-    if (reply.sent) return;
-    const path = request.url.split("?")[0];
-    if (request.method === "GET" && (path === "/health" || path === "/v1/health")) return;
+  app.addHook("onRoute", (routeOptions) => {
+    if (isPublicApiRoute(routeOptions.method, routeOptions.url)) return;
 
-    request.createUserClient = (jwt: string) =>
-      createClient(config.SUPABASE_URL, config.SUPABASE_PUBLISHABLE_KEY, {
-        auth: {
-          persistSession: false,
-          autoRefreshToken: false,
-          detectSessionInUrl: false,
-        },
-        global: {
-          headers: { Authorization: `Bearer ${jwt}` },
-        },
-      });
+    const attachClient = async (request: FastifyRequest) => {
+      if (request.supabase) return;
+
+      const accessToken = readVerifiedAccessToken(request);
+      if (!accessToken || !request.auth?.userId) {
+        throw new ApiError(401, "unauthorized", "Authentication required.");
+      }
+
+      request.supabase = createUserSupabaseClient(config, accessToken);
+    };
+
+    const current = routeOptions.preHandler;
+    if (!current) {
+      routeOptions.preHandler = attachClient;
+      return;
+    }
+
+    const handlers = Array.isArray(current) ? current : [current];
+    routeOptions.preHandler = [...handlers, attachClient];
+  });
+}
+
+function createUserSupabaseClient(config: ApiConfig, accessToken: string): SupabaseClient {
+  return createClient(config.SUPABASE_URL, config.SUPABASE_PUBLISHABLE_KEY, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+    global: {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    },
   });
 }
