@@ -17,6 +17,7 @@ export function expectUuid(value: unknown) {
 export function buildTestApp(
   env: Record<string, string | undefined> = validEnv,
   verifyToken?: BuildAppOptions["verifyToken"],
+  extra?: Pick<BuildAppOptions, "logStream">,
 ) {
-  return buildApp({ env, verifyToken });
+  return buildApp({ env, verifyToken, ...extra });
 }

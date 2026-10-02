@@ -7,6 +7,9 @@ export function registerSupabase(app: FastifyInstance, config: ApiConfig) {
 
   app.addHook("onRequest", async (request, reply) => {
     if (reply.sent) return;
+    const path = request.url.split("?")[0];
+    if (request.method === "GET" && (path === "/health" || path === "/v1/health")) return;
+
     request.createUserClient = (jwt: string) =>
       createClient(config.SUPABASE_URL, config.SUPABASE_PUBLISHABLE_KEY, {
         auth: {

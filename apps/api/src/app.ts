@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
-import Fastify, { type FastifyRequest } from "fastify";
+import type { Writable } from "node:stream";
+import Fastify from "fastify";
 import { createSupabaseTokenVerifier, registerAuth, type TokenVerifier } from "./plugins/auth.js";
 import { registerCors } from "./plugins/cors.js";
 import { readApiEnv, type ApiConfig } from "./plugins/env.js";
@@ -23,6 +24,7 @@ declare module "fastify" {
 export type BuildAppOptions = {
   env: Record<string, string | undefined>;
   verifyToken?: TokenVerifier;
+  logStream?: Writable;
 };
 
 export async function buildApp(options: BuildAppOptions) {
@@ -30,6 +32,7 @@ export async function buildApp(options: BuildAppOptions) {
   const app = Fastify({
     logger: {
       level: config.LOG_LEVEL,
+      ...(options.logStream ? { stream: options.logStream } : {}),
       redact: {
         paths: [
           "req.headers.authorization",
@@ -65,8 +68,4 @@ export async function buildApp(options: BuildAppOptions) {
   });
 
   return app;
-}
-
-export function apiConfig(request: FastifyRequest): ApiConfig {
-  return request.server.apiConfig;
 }

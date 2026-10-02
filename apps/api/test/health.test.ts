@@ -47,4 +47,12 @@ describe("health", () => {
     expect(response.headers["x-request-id"]).toBe(requestId);
     await app.close();
   });
+
+  it("generates a request id when the header is missing", async () => {
+    const app = await buildTestApp();
+    const response = await app.inject({ method: "GET", url: "/v1/health" });
+
+    expectUuid(response.headers["x-request-id"]);
+    await app.close();
+  });
 });

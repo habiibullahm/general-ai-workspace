@@ -64,4 +64,20 @@ describe("auth", () => {
     expect(response.json()).toEqual({ userId: "user-123" });
     await app.close();
   });
+
+  it("ignores query and header owner fields", async () => {
+    const app = await identityApp();
+    const response = await app.inject({
+      method: "POST",
+      url: "/__test/identity?user_id=attacker-id&userId=attacker-id",
+      headers: {
+        authorization: "Bearer valid-token",
+        "x-user-id": "attacker-id",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ userId: "user-123" });
+    await app.close();
+  });
 });
