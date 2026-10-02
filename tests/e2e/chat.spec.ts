@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { conversationIdFromUrl, removeConversation } from "./remove-conversation";
 
 test("authenticated provider response survives refresh, reopen, and sign-in again", async ({ page }) => {
   test.skip(!process.env.E2E_USER_EMAIL || !process.env.E2E_USER_PASSWORD, "Requires a dedicated authenticated test account and real provider configuration.");
@@ -43,25 +44,21 @@ test("authenticated provider response survives refresh, reopen, and sign-in agai
     await page.reload();
     await expect(page.locator(".message-row.assistant .markdown").last()).toHaveText(answer!);
     expect(await page.locator(".message-row.assistant .markdown").last().textContent()).toBe(answer);
-    title = (await page.locator(".history-item.is-active").textContent())?.trim();
+    title = (await page.locator(".desktop-sidebar .history-item.is-active").textContent())?.trim();
     expect(title).toBeTruthy();
+    const conversationId = conversationIdFromUrl(conversationUrl);
+    expect(conversationId).toBeTruthy();
     await page.goto("/");
-    await page.getByRole("button", { name: title!, exact: true }).click();
+    await page.locator(".desktop-sidebar").locator(`[data-conversation-id="${conversationId}"]`).locator(".history-item").click();
+    await expect(page).toHaveURL(new RegExp(`conversation=${conversationId}`));
     await expect(page.locator(".message-row.assistant .markdown").last()).toHaveText(answer!);
-    await page.getByRole("button", { name: "Sign out", exact: true }).click();
+    await page.getByRole("button", { name: "Sign out everywhere", exact: true }).click();
     await expect(page).toHaveURL((url) => url.pathname === "/login");
     await login();
     await page.goto(conversationUrl);
     await expect(page.locator(".message-row.assistant .markdown").last()).toHaveText(answer!);
     expect(await page.locator(".message-row.assistant .markdown").last().textContent()).toBe(answer);
   } finally {
-    if (conversationUrl) {
-      await page.goto(conversationUrl);
-      const remove = title ? page.getByRole("button", { name: `Delete ${title}`, exact: true }) : page.locator(".history-entry").filter({ has: page.locator(".history-item.is-active") }).getByRole("button", { name: /^Delete / });
-      if (await remove.count()) {
-        page.once("dialog", (dialog) => dialog.accept());
-        await remove.click();
-      }
-    }
+    await removeConversation(page, conversationUrl);
   }
 });

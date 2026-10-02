@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { removeConversation } from "./remove-conversation";
 
 // Authenticated, real-provider checks for the M5 last-turn controls. Skipped without the dedicated E2E account;
 // a skip never counts as acceptance. Each test removes only the conversation it created.
@@ -40,16 +41,6 @@ async function openNewChat(page: Page) {
 async function send(page: Page, text: string) {
   await page.getByRole("textbox", { name: "Message Nibie" }).fill(text);
   await page.getByRole("button", { name: "Send message" }).click();
-}
-
-async function removeConversation(page: Page, url: string | undefined) {
-  if (!url) return;
-  await page.goto(url);
-  const remove = page.locator(".history-entry").filter({ has: page.locator(".history-item.is-active") }).getByRole("button", { name: /^Delete / });
-  if (await remove.count()) {
-    page.once("dialog", (dialog) => dialog.accept());
-    await remove.click();
-  }
 }
 
 const assistant = (page: Page) => page.locator(".message-row.assistant .markdown");

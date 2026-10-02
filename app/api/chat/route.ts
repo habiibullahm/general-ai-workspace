@@ -6,6 +6,8 @@ import { defaultReasoningEffort, reasoningAllowed, reasoningEffortSchema, resolv
 import { chatProvider } from "@/lib/ai/provider";
 import { getModelOptions } from "@/lib/ai/registry";
 import { readOpenAiSse } from "@/lib/ai/sse";
+import { preferenceInstructions } from "@/lib/preferences/instructions";
+import { loadOwnerPreferences } from "@/lib/preferences/store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,11 +47,14 @@ async function respond(request: Request) {
 
   // The conversation, the user message and the recent context only depend on the ids in the request, so they are read together
   // (RLS hides other owners' rows from all three); the message context is trimmed to this message below.
-  const [{ data: conversation, error: conversationError }, { data: userMessage, error: messageError }, { data: recent, error: readError }] = await Promise.all([
+  // Preferences are soft personalization. A failed read uses safe defaults and does not block this authenticated request.
+  const [{ data: conversation, error: conversationError }, { data: userMessage, error: messageError }, { data: recent, error: readError }, preferenceState] = await Promise.all([
     supabase.from("conversations").select("id,selected_model").eq("id", parsedId.data).maybeSingle(),
     supabase.from("messages").select("id,position,content").eq("id", parsedMessageId.data).eq("conversation_id", parsedId.data).eq("role", "user").eq("status", "complete").maybeSingle(),
     supabase.from("messages").select("role,content,status,position").eq("conversation_id", parsedId.data).eq("status", "complete").order("position", { ascending: false }).limit(34),
+    loadOwnerPreferences(supabase),
   ]);
+  if (preferenceState.error) console.error("preference_read_failed");
   if (conversationError) return NextResponse.json({ error: safeError }, { status: 503 });
   if (!conversation) return NextResponse.json({ error: "Conversation unavailable." }, { status: 404 });
   const mode = requestedModel?.data ?? resolveMode(conversation.selected_model, availableModes);
@@ -68,6 +73,8 @@ async function respond(request: Request) {
     characters += row.content.length;
     return characters <= 64_000;
   }).reverse().map((row) => ({ role: row.role as "user" | "assistant", content: row.content }));
+  // One preference block, ahead of the transcript. It is not repeated on the user message.
+  const prompt = [{ role: "system" as const, content: preferenceInstructions(preferenceState.preferences) }, ...context];
   const { data: assistant, error: claimError } = await supabase.rpc(regenerate ? "regenerate_assistant_message" : "claim_assistant_message", {
     p_conversation_id: conversation.id, p_user_message_id: parsedMessageId.data,
   }).single<{ id: string; position: number; content: string; status: string; replayed: boolean }>();
@@ -90,7 +97,7 @@ async function respond(request: Request) {
     return !error && Boolean(data);
   };
   let responseStream: ReadableStream<Uint8Array>;
-  try { responseStream = await chatProvider.stream(mode, context, aborter.signal, { reasoning }); }
+  try { responseStream = await chatProvider.stream(mode, prompt, aborter.signal, { reasoning }); }
   catch (error) {
     if (error instanceof Error && /^(Missing AI configuration:|Unsupported AI_PROVIDER)/.test(error.message)) console.error(error.message);
     try { await persist(clientCancelled ? "Response stopped." : "Response unavailable.", clientCancelled ? "interrupted" : "error"); }

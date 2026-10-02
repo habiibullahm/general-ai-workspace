@@ -10,14 +10,14 @@ export type ConversationSummary = {
   created_at: string;
   updated_at: string;
 };
-export type PersistedMessage = { id: string; role: "user" | "assistant"; content: string; position: number; status?: "complete" | "streaming" | "interrupted" | "error" };
+export type PersistedMessage = { id: string; role: "user" | "assistant"; content: string; position: number; status?: "complete" | "streaming" | "interrupted" | "error"; created_at?: string };
 
 export async function getChatWorkspaceData(conversationId: unknown) {
   const supabase = await createSupabaseServerClient();
   const parsedId = validateConversationId(conversationId);
   const readMessages = (id: string) => supabase
     .from("messages")
-    .select("id,role,content,position,status")
+    .select("id,role,content,position,status,created_at")
     .eq("conversation_id", id)
     .order("position", { ascending: true });
 

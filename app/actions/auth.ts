@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { getPublicAppUrl } from "@/lib/config/app-url";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { credentialsSchema, type AuthActionState } from "@/lib/auth/validation";
+import { SIGN_OUT_SCOPE } from "@/lib/privacy/sign-out";
 
 function readCredentials(formData: FormData) {
   const result = credentialsSchema.safeParse({
@@ -60,7 +61,8 @@ export async function signUpAction(
 
 export async function signOutAction() {
   const supabase = await createSupabaseServerClient();
-  await supabase.auth.signOut();
+  // Global scope revokes every session for this account. Do not narrow it to this device without an explicit product decision.
+  await supabase.auth.signOut({ scope: SIGN_OUT_SCOPE });
   revalidatePath("/", "layout");
   redirect("/login");
 }
