@@ -4,9 +4,11 @@ import { getAuthenticatedUser } from "@/lib/auth/get-user";
 import { modelSchema, validateConversationId, validateMessage } from "@/lib/chat/validation";
 import { defaultReasoningEffort, reasoningAllowed, reasoningEffortSchema, resolveMode } from "@/lib/chat/models";
 import { chatProvider } from "@/lib/ai/provider";
-import { getModelOptions } from "@/lib/ai/registry";
+import { toProviderMessages } from "@/lib/ai/provider-messages";
+import { contextCapabilitiesFor, getModelOptions } from "@/lib/ai/registry";
 import { readOpenAiSse } from "@/lib/ai/sse";
-import { preferenceInstructions } from "@/lib/preferences/instructions";
+import { buildContext } from "@/lib/context/build-context";
+import { CONTEXT_POLICY_VERSION } from "@/lib/context/context-policy";
 import { loadOwnerPreferences } from "@/lib/preferences/store";
 
 export const runtime = "nodejs";
@@ -64,17 +66,8 @@ async function respond(request: Request) {
   if (messageError) return NextResponse.json({ error: safeError }, { status: 503 });
   if (!userMessage) return NextResponse.json({ error: "Message unavailable." }, { status: 404 });
   if (!validateMessage(userMessage.content).success) return NextResponse.json({ error: "Invalid saved message." }, { status: 400 });
-  const rows = recent?.filter((row) => row.position <= userMessage.position).slice(0, 32);
+  const rows = recent?.filter((row) => row.position <= userMessage.position && (row.role === "user" || row.role === "assistant") && row.status === "complete").slice(0, 32);
   if (readError || !rows?.length) return NextResponse.json({ error: safeError }, { status: 503 });
-  // ponytail: characters approximate tokens; use model-specific tokenization if context limits require it.
-  let characters = 0;
-  const context = rows.filter((row) => {
-    if (row.status !== "complete" || (row.role !== "user" && row.role !== "assistant")) return false;
-    characters += row.content.length;
-    return characters <= 64_000;
-  }).reverse().map((row) => ({ role: row.role as "user" | "assistant", content: row.content }));
-  // One preference block, ahead of the transcript. It is not repeated on the user message.
-  const prompt = [{ role: "system" as const, content: preferenceInstructions(preferenceState.preferences) }, ...context];
   const { data: assistant, error: claimError } = await supabase.rpc(regenerate ? "regenerate_assistant_message" : "claim_assistant_message", {
     p_conversation_id: conversation.id, p_user_message_id: parsedMessageId.data,
   }).single<{ id: string; position: number; content: string; status: string; replayed: boolean }>();
@@ -85,17 +78,51 @@ async function respond(request: Request) {
   const headers = { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache, no-transform" };
   if (assistant.replayed) return new Response(event("start", { id: assistant.id, position: assistant.position }) + event("delta", { text: assistant.content }) + event("status", { status: "complete" }) + event("done", {}), { headers });
 
+  const persist = async (content: string, status: "complete" | "interrupted" | "error") => {
+    const { data, error } = await supabase.from("messages").update({ content, status }).eq("id", assistant.id).eq("status", "streaming").select("id").maybeSingle();
+    if (error || !data) console.error("assistant_state_persist_failed");
+    return !error && Boolean(data);
+  };
+  let prompt: ReturnType<typeof toProviderMessages> | undefined;
+  let context: ReturnType<typeof buildContext>["diagnostics"] | undefined;
+  try {
+    const started = Date.now();
+    const plan = buildContext({
+      capabilities: contextCapabilitiesFor(mode),
+      preferences: preferenceState.preferences,
+      preferenceReadFailed: Boolean(preferenceState.error),
+      summary: null,
+      messages: rows.map((row) => ({ role: row.role as "user" | "assistant", content: row.content, position: row.position })),
+      currentPosition: userMessage.position,
+    });
+    prompt = toProviderMessages(plan);
+    context = plan.diagnostics;
+    const profile = plan.blocks.some((block) => block.id === "profile" && block.included);
+    const summary = plan.blocks.some((block) => block.id === "thread_summary" && block.included);
+    console.info(JSON.stringify({
+      event: "context.built",
+      "context.build.duration_ms": Date.now() - started,
+      "context.source.count": plan.blocks.filter((block) => block.included).length,
+      "context.profile.included": profile,
+      "context.summary.included": summary,
+      "context.recent_message_count": plan.diagnostics.recentMessageCount,
+      "context.estimated_tokens": plan.budget.estimatedTokens,
+      "context.truncated": plan.budget.truncated,
+      "context.policy_version": CONTEXT_POLICY_VERSION,
+    }));
+  } catch {
+    console.error("context_build_failed");
+    try { await persist("Response unavailable.", "error"); } catch { console.error("assistant_state_persist_failed"); }
+    return NextResponse.json({ error: safeError }, { status: 503 });
+  }
+  if (!prompt || !context) return NextResponse.json({ error: safeError }, { status: 503 });
+
   const aborter = new AbortController();
   let clientCancelled = false;
   const onRequestAbort = () => { clientCancelled = true; aborter.abort(); };
   request.signal.addEventListener("abort", onRequestAbort, { once: true });
   if (request.signal.aborted) onRequestAbort();
   const timeout = setTimeout(() => aborter.abort(), 120_000);
-  const persist = async (content: string, status: "complete" | "interrupted" | "error") => {
-    const { data, error } = await supabase.from("messages").update({ content, status }).eq("id", assistant.id).eq("status", "streaming").select("id").maybeSingle();
-    if (error || !data) console.error("assistant_state_persist_failed");
-    return !error && Boolean(data);
-  };
   let responseStream: ReadableStream<Uint8Array>;
   try { responseStream = await chatProvider.stream(mode, prompt, aborter.signal, { reasoning }); }
   catch (error) {
@@ -114,7 +141,7 @@ async function respond(request: Request) {
       };
       try {
         if (clientCancelled) throw new Error("Response aborted.");
-        controller.enqueue(encoder.encode(event("start", { id: assistant.id, position: assistant.position })));
+        controller.enqueue(encoder.encode(event("start", { id: assistant.id, position: assistant.position, context })));
         for await (const item of readOpenAiSse(responseStream, aborter.signal)) {
           if (item.type === "done") { completed = true; break; }
           output += item.text; controller.enqueue(encoder.encode(event("delta", { text: item.text })));

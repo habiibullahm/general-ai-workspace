@@ -54,6 +54,18 @@ export function getAiConfig(env: Env = process.env): AiConfig {
   };
 }
 
+export type ModelContextCapabilities = {
+  contextWindowTokens: number;
+  maxOutputTokens: number;
+};
+
+// Nibie policy ceilings. They can sit below a provider window. The client never sends them.
+const contextCeiling: ModelContextCapabilities = { contextWindowTokens: 16_384, maxOutputTokens: 2_048 };
+
+export function contextCapabilitiesFor(_mode: ChatModel): ModelContextCapabilities {
+  return contextCeiling;
+}
+
 export function resolveLogicalModel(model: ChatModel, config: AiConfig): string {
   const resolved = config.models[model];
   if (!resolved) throw new Error(`Unavailable model mode: ${model}`);

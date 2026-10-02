@@ -8,6 +8,7 @@ import { BrandMark } from "@/components/brand";
 import { ChatComposer, type ComposerHandle } from "@/components/chat-composer";
 import { ChatSidebar } from "@/components/chat-sidebar";
 import { SettingsDialog } from "@/components/settings/settings-dialog";
+import type { SettingsSectionId } from "@/components/settings/registry";
 import { MessageRow } from "@/components/message-row";
 import { forgetLastConversationId, readChatFlag, readLastConversationId, subscribeChatPreferences, writeLastConversationId } from "@/components/use-chat-preferences";
 import { useReasoningPreference } from "@/components/use-reasoning-preference";
@@ -20,6 +21,8 @@ import { chatPath, conversationPath } from "@/lib/routes";
 import { clearStoredConversationReference } from "@/lib/privacy/local-state";
 import { modelForComposer } from "@/lib/preferences/model";
 import { defaultUserPreferences, type UserPreferences } from "@/lib/preferences/types";
+import { previewContextDiagnostics } from "@/lib/context/profile-context";
+import type { ContextDiagnostics } from "@/lib/context/context-types";
 import { followAfterSending, followStreamedContent, isNearBottom, trackNearBottom } from "@/lib/chat/scroll";
 import { readChatSse } from "@/lib/ai/sse";
 import { activeAssistantId, classifyStreamFailure, hasActiveGeneration, isRecoverySettled, isRegressiveSnapshot, latestReplyFailed, needsServerCheck, recoveryPollAction, recoveryPollMs, unseenGenerationSettled } from "@/lib/chat/recovery";
@@ -72,6 +75,8 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
   }
   const pinnedNewChatMode = useRef(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<SettingsSectionId>("general");
+  const [contextDiagnostics, setContextDiagnostics] = useState<ContextDiagnostics | null>(null);
   const modeFor = (saved: string | undefined, hasConversation: boolean) => modelForComposer({
     hasConversation,
     conversationModel: saved,
@@ -273,7 +278,7 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
   const openConversation = useStableCallback((id: string | null) => {
     if (busy.current && !streamController.current) return;
     streamController.current?.abort();
-    setNotice(""); setDrawerOpen(false); setEditingId(null); setRecovery(null); pinLatestRef.current = true;
+    setNotice(""); setDrawerOpen(false); setEditingId(null); setRecovery(null); setContextDiagnostics(null); pinLatestRef.current = true;
     const item = shownConversations.find((conversation) => conversation.id === id);
     if (item) {
       pinnedNewChatMode.current = false;
@@ -334,6 +339,7 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
       for await (const data of readChatSse(response.body)) {
         if (data.type === "start") {
           assistantId = data.id;
+          if (data.context) setContextDiagnostics(data.context);
           // The server has replaced the previous reply once it announces the new one, so hide the old row only now.
           if (options.replaceIds?.length) setRemovedIds((ids) => [...ids, ...options.replaceIds!]);
           const reply: PersistedMessage = { id: data.id, role: "assistant", content: "", position: data.position, status: "streaming", created_at: new Date().toISOString() };
@@ -476,7 +482,8 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
     router.refresh();
   });
   const closeDrawer = useStableCallback(() => { setDrawerOpen(false); menuButtonRef.current?.focus(); });
-  const openSettings = useStableCallback(() => { setDrawerOpen(false); setSettingsOpen(true); });
+  const openSettings = useStableCallback(() => { setDrawerOpen(false); setSettingsSection("general"); setSettingsOpen(true); });
+  const editProfile = useStableCallback(() => { setDrawerOpen(false); setSettingsSection("personalization"); setSettingsOpen(true); });
   const closeSettings = useStableCallback(() => setSettingsOpen(false));
   const stopStream = useStableCallback(() => streamController.current?.abort());
   const attach = useStableCallback(() => setNotice("Attachments are not available yet."));
@@ -485,13 +492,18 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
 
   const history = activeId ? activeId : null;
   const caption = preview ? "Mock workspace · Messages stay in this tab and are not saved." : streaming ? "Nibie is responding · You can stop at any time." : "Your conversations are saved to your account.";
+  const contextPreview = previewContextDiagnostics({
+    preferences: savedPreferences,
+    preferenceReadFailed: Boolean(preferencesError),
+    hasEarlierMessages: messages.some((message) => message.role === "user" || message.role === "assistant"),
+  });
   const sidebarProps = { conversations: shownConversations, activeId: history, busy: controlsDisabled, preview, email, renderedAt, onClose: closeDrawer, onOpen: openConversation, onNewChat: newChat, onOpenSettings: openSettings, onRename: rename, onDelete: remove };
 
   return <main className="chat-workspace"><ChatSidebar {...sidebarProps} />{drawerOpen && <div className="mobile-drawer"><button className="drawer-scrim" aria-label="Dismiss menu backdrop" onClick={closeDrawer} /><ChatSidebar {...sidebarProps} mobile drawerRef={drawerRef} closeMenuRef={closeMenuRef} /></div>}
     <section className="chat-main" aria-label="Chat workspace"><header className="chat-header"><button ref={menuButtonRef} className="icon-button mobile-menu-button" aria-label="Open conversation menu" onClick={() => setDrawerOpen(true)}><Menu size={21} /></button><div className="header-model"><span className="model-dot" /><span>Nibie</span><span className="header-divider">/</span><span className="header-context">A little room to think</span></div><button className="header-new-chat" disabled={controlsDisabled} onClick={newChat}><Plus size={16} /><span>New chat</span></button></header>
       <div ref={scrollRef} onScroll={handleScroll} className={`conversation-scroll ${messages.length || loadingConversation ? "has-messages" : "is-empty"}`}>{loadingConversation ? <div className="message-list conversation-skeleton" role="status" aria-busy="true" aria-label="Loading conversation"><div className="skeleton-line is-short" /><div className="skeleton-line" /><div className="skeleton-line" /><div className="skeleton-line is-medium" /></div> : messages.length ? <div className="message-list" aria-live="polite">{messages.map((message) => <MessageRow key={message.id} message={message} initial={initial} isLast={message.id === lastMessage?.id} isLastUser={message.id === lastUser?.id} canMutate={!preview} disabled={messageActionsLocked} editing={editingId === message.id} onRegenerate={regenerate} onStartEdit={startEdit} onCancelEdit={cancelEdit} onSaveEdit={saveEdit} />)}{notice && <p className="local-notice" role="status">{notice}</p>}</div> : <div className="welcome-panel">{notice && <p className="local-notice" role="status">{notice}</p>}<div className="welcome-icon"><BrandMark /></div><p className="welcome-eyebrow">A LITTLE ROOM TO THINK</p><h1>What’s on your mind?</h1><p className="welcome-copy">A fresh page for ideas, questions, and whatever you’re working through.</p><div className="suggestion-list" aria-label="Suggestions">{suggestions.map((suggestion) => <button key={suggestion} onClick={() => { composerRef.current?.set(suggestion); composerRef.current?.focus(); }}>{suggestion}<span>↗</span></button>)}</div></div>}</div>
-      <ChatComposer ref={composerRef} sending={sending || recovering} streaming={streaming} models={models} mode={mode} reasoningModes={reasoningModes} reasoning={reasoning} caption={caption} onSubmit={submitMessage} onStop={stopStream} onModeChange={changeMode} onReasoningChange={setReasoning} onAttach={attach} />
+      <ChatComposer ref={composerRef} sending={sending || recovering} streaming={streaming} models={models} mode={mode} reasoningModes={reasoningModes} reasoning={reasoning} caption={caption} diagnostics={contextDiagnostics ?? contextPreview} onEditProfile={editProfile} onSubmit={submitMessage} onStop={stopStream} onModeChange={changeMode} onReasoningChange={setReasoning} onAttach={attach} />
     </section>
-    {settingsOpen ? <SettingsDialog preview={preview} busy={controlsDisabled} models={models} initialPreferences={savedPreferences} initialError={preferencesError} onClose={closeSettings} onSaved={setSavedPreferences} onConversationsDeleted={conversationsDeleted} /> : null}
+    {settingsOpen ? <SettingsDialog initialSection={settingsSection} preview={preview} busy={controlsDisabled} models={models} initialPreferences={savedPreferences} initialError={preferencesError} onClose={closeSettings} onSaved={setSavedPreferences} onConversationsDeleted={conversationsDeleted} /> : null}
   </main>;
 }

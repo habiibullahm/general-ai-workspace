@@ -9,6 +9,7 @@ import { parsePreferencePatch } from "@/lib/preferences/validation";
 import type { PreferencePatch, UserPreferences } from "@/lib/preferences/types";
 
 type Props = {
+  initialSection?: SettingsSectionId;
   preview: boolean;
   busy?: boolean;
   models: ModelOption[];
@@ -23,11 +24,11 @@ function samePreferences(current: UserPreferences, patch: PreferencePatch) {
   return Object.entries(patch).every(([key, value]) => current[key as keyof PreferencePatch] === value);
 }
 
-export function SettingsDialog({ preview, busy = false, models, initialPreferences, initialError, onClose, onSaved, onConversationsDeleted }: Props) {
+export function SettingsDialog({ initialSection = "general", preview, busy = false, models, initialPreferences, initialError, onClose, onSaved, onConversationsDeleted }: Props) {
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
   const edited = useRef(false);
-  const [section, setSection] = useState<SettingsSectionId>("general");
+  const [section, setSection] = useState<SettingsSectionId>(initialSection);
   const [preferences, setPreferences] = useState(initialPreferences);
   const [loadError, setLoadError] = useState(initialError);
   const [saveError, setSaveError] = useState<string | null>(null);
