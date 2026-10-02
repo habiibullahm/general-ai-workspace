@@ -12,6 +12,7 @@ import { aboutYouLimit, preferredNameLimit, type PreferencePatch, type UserPrefe
 export type SettingsSectionProps = {
   preferences: UserPreferences;
   models: ModelOption[];
+  email?: string;
   disabled: boolean;
   preview?: boolean;
   busy?: boolean;
@@ -87,9 +88,18 @@ export function ChatSettingsSection() {
   </SettingsSection>;
 }
 
+export function ProfileSettingsSection({ preferences, email = "", disabled, onChange }: SettingsSectionProps) {
+  return <SettingsSection title="Profile" description="The name shown on your account in the sidebar.">
+    <SettingsTextField id="profile-name" label="Name" hint="Leave blank to use the name from your sign-in." value={preferences.preferredName ?? ""} maxLength={preferredNameLimit} disabled={disabled} onCommit={(preferredName) => onChange({ preferredName })} />
+    <div className="settings-field">
+      <div className="settings-theme-label">Email</div>
+      <p className="settings-note">{email}</p>
+    </div>
+  </SettingsSection>;
+}
+
 export function PersonalizationSettingsSection({ preferences, disabled, onChange }: SettingsSectionProps) {
   return <SettingsSection title="Personalization" description="Optional details Nibie may use when you want them. This is not hidden memory.">
-    <SettingsTextField id="preferred-name" label="Preferred name" hint="A short name. Leave blank to clear it." value={preferences.preferredName ?? ""} maxLength={preferredNameLimit} disabled={disabled} onCommit={(preferredName) => onChange({ preferredName })} />
     <SettingsTextField id="about-you" label="About you" hint="Role, goals, or working context. Leave blank to clear it." value={preferences.aboutYou ?? ""} maxLength={aboutYouLimit} multiline disabled={disabled} onCommit={(aboutYou) => onChange({ aboutYou })} />
   </SettingsSection>;
 }

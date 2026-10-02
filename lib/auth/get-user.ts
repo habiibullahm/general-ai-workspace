@@ -1,10 +1,12 @@
-export type AuthenticatedUser = { id: string; email?: string };
+import { metadataDisplayName } from "@/lib/auth/display-name";
+
+export type AuthenticatedUser = { id: string; email?: string; name?: string };
 
 // The slice of the Supabase auth client this helper needs (getClaims verifies the access token's signature and expiry locally).
 export type ClaimsClient = {
   auth: {
     getClaims: () => Promise<{
-      data: { claims: { sub?: string; email?: unknown } } | null;
+      data: { claims: { sub?: string; email?: unknown; name?: unknown; full_name?: unknown; user_metadata?: unknown } } | null;
       error: unknown | null;
     }>;
   };
@@ -20,5 +22,6 @@ export async function getAuthenticatedUser(client: ClaimsClient): Promise<Authen
   const id = result.data?.claims.sub;
   if (result.error || typeof id !== "string" || !id) return null;
   const email = result.data?.claims.email;
-  return { id, email: typeof email === "string" ? email : undefined };
+  const name = metadataDisplayName(result.data?.claims);
+  return { id, email: typeof email === "string" ? email : undefined, ...(name ? { name } : {}) };
 }

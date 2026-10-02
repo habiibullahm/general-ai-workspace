@@ -24,6 +24,7 @@ import type { RoomBriefFields } from "@/lib/rooms/types";
 import { chatPath, conversationPath, roomDraftPath, roomPath } from "@/lib/routes";
 import { clearStoredConversationReference } from "@/lib/privacy/local-state";
 import { modelForComposer } from "@/lib/preferences/model";
+import { accountDisplayName } from "@/lib/auth/display-name";
 import { defaultUserPreferences, type UserPreferences } from "@/lib/preferences/types";
 import { previewContextDiagnostics } from "@/lib/context/profile-context";
 import type { ContextDiagnostics } from "@/lib/context/context-types";
@@ -59,7 +60,7 @@ const mockConversations: Conversation[] = [
 const noModels: ModelOption[] = [];
 const noReasoningModes: ChatModel[] = [];
 
-export function ChatWorkspace({ email, initialData, preview = false, models = noModels, reasoningModes = noReasoningModes, renderedAt, preferences, preferencesError = null }: { email: string; initialData?: WorkspaceData; preview?: boolean; models?: ModelOption[]; reasoningModes?: ChatModel[]; renderedAt?: number; preferences?: UserPreferences; preferencesError?: string | null }) {
+export function ChatWorkspace({ email, metadataName = null, initialData, preview = false, models = noModels, reasoningModes = noReasoningModes, renderedAt, preferences, preferencesError = null }: { email: string; metadataName?: string | null; initialData?: WorkspaceData; preview?: boolean; models?: ModelOption[]; reasoningModes?: ChatModel[]; renderedAt?: number; preferences?: UserPreferences; preferencesError?: string | null }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const conversationParam = searchParams.get("conversation");
@@ -612,7 +613,7 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
   });
   const closeDrawer = useStableCallback(() => { setDrawerOpen(false); menuButtonRef.current?.focus(); });
   const openSettings = useStableCallback(() => { setDrawerOpen(false); setSettingsSection("general"); setSettingsOpen(true); });
-  const editProfile = useStableCallback(() => { setDrawerOpen(false); setSettingsSection("personalization"); setSettingsOpen(true); });
+  const editProfile = useStableCallback(() => { setDrawerOpen(false); setSettingsSection("profile"); setSettingsOpen(true); });
   const closeSettings = useStableCallback(() => setSettingsOpen(false));
   const stopStream = useStableCallback(() => streamController.current?.abort());
   const attach = useStableCallback(() => setNotice("Attachments are not available yet."));
@@ -629,15 +630,16 @@ export function ChatWorkspace({ email, initialData, preview = false, models = no
     hasEarlierMessages: messages.some((message) => message.role === "user" || message.role === "assistant"),
     room: contextRoom,
   });
+  const accountName = accountDisplayName({ email, metadataName, preferredName: savedPreferences.preferredName });
   const headerRoomName = (showRoom ? activeRoom?.name : threadRoom?.name) ?? null;
   const roomThreads = activeRoom ? shownConversations.filter((item) => item.room_id === activeRoom.id) : [];
-  const sidebarProps = { conversations: shownConversations, rooms, activeId: history, activeRoomId: showRoom ? selectedRoomId : threadRoom?.id ?? null, busy: controlsDisabled, preview, email, renderedAt, onClose: closeDrawer, onOpen: openConversation, onOpenRoom: openRoom, onCreateRoom: createRoom, onNewChat: newChat, onOpenSettings: openSettings, onRename: rename, onDelete: remove };
+  const sidebarProps = { conversations: shownConversations, rooms, activeId: history, activeRoomId: showRoom ? selectedRoomId : threadRoom?.id ?? null, busy: controlsDisabled, preview, email, name: accountName, renderedAt, onClose: closeDrawer, onOpen: openConversation, onOpenRoom: openRoom, onCreateRoom: createRoom, onNewChat: newChat, onOpenSettings: openSettings, onRename: rename, onDelete: remove };
 
   return <main className="chat-workspace"><ChatSidebar {...sidebarProps} />{drawerOpen && <div className="mobile-drawer"><button className="drawer-scrim" aria-label="Dismiss menu backdrop" onClick={closeDrawer} /><ChatSidebar {...sidebarProps} mobile drawerRef={drawerRef} closeMenuRef={closeMenuRef} /></div>}
     <section className="chat-main" aria-label="Chat workspace"><header className="chat-header"><button ref={menuButtonRef} className="icon-button mobile-menu-button" aria-label="Open conversation menu" onClick={() => setDrawerOpen(true)}><Menu size={21} /></button><div className="header-model"><span className="model-dot" /><span>Nibie</span><span className="header-divider">/</span><span className={`header-context${headerRoomName ? " is-room-name" : ""}`}>{headerRoomName ?? "A little room to think"}</span></div>{activeId && rooms.length ? <label className="thread-room"><span>Room</span><select aria-label="Move thread" value={activeConversation?.room_id ?? ""} disabled={controlsDisabled} onChange={(event) => void moveThread(event.target.value || null)}><option value="">General</option>{rooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}</select></label> : null}<button className="header-new-chat" disabled={controlsDisabled} onClick={newChat}><Plus size={16} /><span>New chat</span></button></header>
       <div ref={scrollRef} onScroll={handleScroll} className={`conversation-scroll ${showRoom ? "is-room" : messages.length || loadingConversation ? "has-messages" : "is-empty"}`}>{showRoom && activeRoom ? <RoomDetail key={activeRoom.id} room={activeRoom} threads={roomThreads} busy={controlsDisabled} onOpenThread={openConversation} onNewThread={() => newThreadInRoom(activeRoom.id)} onSaveRoom={saveRoom} onSaveBrief={saveBrief} onDelete={removeRoom} /> : loadingConversation ? <div className="message-list conversation-skeleton" role="status" aria-busy="true" aria-label="Loading conversation"><div className="skeleton-line is-short" /><div className="skeleton-line" /><div className="skeleton-line" /><div className="skeleton-line is-medium" /></div> : messages.length ? <div className="message-list" aria-live="polite">{messages.map((message) => <MessageRow key={message.id} message={message} initial={initial} isLast={message.id === lastMessage?.id} isLastUser={message.id === lastUser?.id} canMutate={!preview} disabled={messageActionsLocked} editing={editingId === message.id} onRegenerate={regenerate} onStartEdit={startEdit} onCancelEdit={cancelEdit} onSaveEdit={saveEdit} />)}{notice && <p className="local-notice" role="status">{notice}</p>}</div> : <div className="welcome-panel">{notice && <p className="local-notice" role="status">{notice}</p>}<div className="welcome-icon"><BrandMark /></div><p className="welcome-eyebrow">{drafting && activeRoom ? "NEW THREAD" : "A LITTLE ROOM TO THINK"}</p><h1>{drafting && activeRoom ? activeRoom.name : "What’s on your mind?"}</h1><p className="welcome-copy">{drafting && activeRoom ? "This thread starts inside the room. Nibie will use its instructions and brief." : "A fresh page for ideas, questions, and whatever you’re working through."}</p>{drafting ? null : <div className="suggestion-list" aria-label="Suggestions">{suggestions.map((suggestion) => <button key={suggestion} onClick={() => { composerRef.current?.set(suggestion); composerRef.current?.focus(); }}>{suggestion}<span>↗</span></button>)}</div>}</div>}</div>
       {showRoom ? null : <ChatComposer ref={composerRef} sending={sending || recovering} streaming={streaming} models={models} mode={mode} reasoningModes={reasoningModes} reasoning={reasoning} caption={caption} diagnostics={contextDiagnostics ?? contextPreview} onEditProfile={editProfile} onSubmit={submitMessage} onStop={stopStream} onModeChange={changeMode} onReasoningChange={setReasoning} onAttach={attach} />}
     </section>
-    {settingsOpen ? <SettingsDialog initialSection={settingsSection} preview={preview} busy={controlsDisabled} models={models} initialPreferences={savedPreferences} initialError={preferencesError} onClose={closeSettings} onSaved={setSavedPreferences} onConversationsDeleted={conversationsDeleted} /> : null}
+    {settingsOpen ? <SettingsDialog initialSection={settingsSection} email={email} preview={preview} busy={controlsDisabled} models={models} initialPreferences={savedPreferences} initialError={preferencesError} onClose={closeSettings} onSaved={setSavedPreferences} onConversationsDeleted={conversationsDeleted} /> : null}
   </main>;
 }
