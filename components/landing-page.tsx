@@ -1,37 +1,131 @@
 import { ArrowUp, MessageSquare, Plus } from "lucide-react";
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { Brand, BrandMark } from "@/components/brand";
 import { chatPath } from "@/lib/routes";
 
-const useCases = [
-  { title: "Think", copy: "Work through a decision, a question, or an idea that is still taking shape." },
-  { title: "Write", copy: "Draft, revise, and tighten language until it sounds like you." },
-  { title: "Code", copy: "Talk through a bug, a change, or a design without leaving the thread." },
-  { title: "Explore", copy: "Follow a subject further, then return to the same conversation." },
+const useCases: { title: string; copy: string; visual: ReactNode }[] = [
+  {
+    title: "Think",
+    copy: "Work through a decision, question, or idea that is still taking shape.",
+    visual: <div className="landing-fragment" aria-hidden="true">
+      <p className="landing-fragment-user">The decision still isn’t clear. Help me find the question underneath it.</p>
+      <p className="landing-fragment-reply">Start with what would change if you chose today. Leave the rest unnamed until it matters.</p>
+    </div>,
+  },
+  {
+    title: "Write",
+    copy: "Draft, revise, summarize, and tighten language without losing your voice.",
+    visual: <div className="landing-fragment" aria-hidden="true">
+      <p className="landing-draft">I just wanted to circle back and touch base on a few things.</p>
+      <p className="landing-revision">Here is the update, and the one decision I need from you.</p>
+    </div>,
+  },
+  {
+    title: "Code",
+    copy: "Talk through bugs, implementation choices, and architecture.",
+    visual: <div className="code-block landing-code" aria-hidden="true">
+      <div className="code-block-header"><span>ts</span></div>
+      <pre><code>{"if (timer) clearTimeout(timer)\ntimer = setTimeout(run, wait)"}</code></pre>
+    </div>,
+  },
+  {
+    title: "Explore",
+    copy: "Follow a question further and return to the same thread later.",
+    visual: <div className="landing-fragment" aria-hidden="true">
+      <p className="landing-fragment-label">Earlier</p>
+      <p className="landing-fragment-line">What belongs in this room?</p>
+      <p className="landing-fragment-label">Returned</p>
+      <p className="landing-fragment-line">Keep the same thread. Add only what you noticed since you left.</p>
+    </div>,
+  },
 ];
 
-const reasons = [
-  { title: "Fast for everyday answers", copy: "Use Fast when you want a direct reply and the question is already clear." },
-  { title: "Balanced and Reasoning when you want more depth", copy: "Balanced is the everyday default. Reasoning is there when a problem needs a slower pass." },
-  { title: "Personalization you set yourself", copy: "Language, length, style, name, and About you change only when you change them." },
-  { title: "A workspace, not a feed", copy: "Conversations stay in a list you can return to. Nothing else is competing for the page." },
-];
+const statements = [
+  ["01", "Fast when the question is already clear."],
+  ["02", "More depth when the problem needs it."],
+  ["03", "A workspace you can return to."],
+] as const;
 
-const preferences = [
-  { title: "Preferred language", copy: "Auto, English, or Bahasa Indonesia." },
-  { title: "Default model", copy: "Fast, Balanced, or Reasoning for new chats." },
-  { title: "Response length", copy: "Concise, Balanced, or Detailed." },
-  { title: "Response style", copy: "Natural, Professional, or Direct." },
-  { title: "Preferred name", copy: "A short name, saved only if you enter one." },
-  { title: "About you", copy: "Role, goals, or working context. Leave it blank to keep it clear." },
-];
+const modes = [
+  ["Fast", "For everyday questions and quick work."],
+  ["Balanced", "For most conversations and daily thinking."],
+  ["Reasoning", "For problems that benefit from a deeper pass."],
+] as const;
 
 const boundaries = [
-  { title: "Account-scoped conversations", copy: "Conversations belong to the account that created them." },
-  { title: "Credentials stay on the server", copy: "AI provider credentials are used on the server and are not sent to the browser." },
-  { title: "Database access controls", copy: "Database-level access controls protect user-owned rows." },
-  { title: "Explicit personalization", copy: "Personalization is limited to the preferences you choose to save." },
+  "Account-scoped conversations",
+  "AI credentials stay server-side",
+  "Database-level access controls protect user-owned data",
+  "Personalization is explicitly controlled by the user",
 ];
+
+function SettingChoice({ label, options, selected }: { label: string; options: readonly string[]; selected: string }) {
+  return <div className="landing-setting">
+    <p className="landing-setting-label">{label}</p>
+    <div className="landing-pills">
+      {options.map((option) => <span key={option} className={option === selected ? "is-selected" : undefined}>{option}{option === selected ? <span className="landing-sr">, selected</span> : null}</span>)}
+    </div>
+  </div>;
+}
+
+function WorkspaceFrame() {
+  return <div className="landing-showcase-glow">
+    <div className="landing-frame" aria-hidden="true">
+      <div className="chat-workspace">
+        <aside className="workspace-sidebar desktop-sidebar">
+          <div className="sidebar-top"><Brand /></div>
+          <div className="new-chat-button"><Plus size={17} strokeWidth={2.2} /> <span>New chat</span></div>
+          <div className="history-nav">
+            <section className="history-group">
+              <p>Today</p>
+              <div className="history-entry"><div className="history-item is-active"><MessageSquare size={15} /><span>Tighten the team note</span></div></div>
+              <div className="history-entry"><div className="history-item"><MessageSquare size={15} /><span>Sketch of the parser</span></div></div>
+            </section>
+            <section className="history-group">
+              <p>Yesterday</p>
+              <div className="history-entry"><div className="history-item"><MessageSquare size={15} /><span>Questions about the launch</span></div></div>
+            </section>
+          </div>
+        </aside>
+        <section className="chat-main">
+          <header className="chat-header">
+            <div className="icon-button mobile-menu-button"><span className="landing-menu-glyph" /></div>
+            <div className="header-model"><span className="model-dot" /><span>Nibie</span><span className="header-divider">/</span><span className="header-context">A little room to think</span></div>
+            <div className="header-new-chat"><Plus size={16} /><span>New chat</span></div>
+          </header>
+          <div className="conversation-scroll has-messages">
+            <div className="message-list">
+              <div className="message-row user">
+                <div className="message-column user">
+                  <div className="message-content user"><p>Help me tighten this before I send it to the team.</p></div>
+                </div>
+                <div className="user-avatar">Y</div>
+              </div>
+              <div className="message-row assistant">
+                <div className="assistant-badge"><BrandMark /></div>
+                <div className="message-content assistant">
+                  <p className="message-author">Nibie</p>
+                  <p>Lead with the decision, then the reason. One sentence on what changed is enough.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="composer-dock">
+            <div className="composer">
+              <p className="landing-composer-placeholder">Message Nibie…</p>
+              <div className="composer-tools">
+                <div className="landing-frame-modes"><span>Fast</span><span className="is-selected">Balanced</span><span>Reasoning</span></div>
+                <div className="send-button"><ArrowUp size={18} strokeWidth={2.3} /></div>
+              </div>
+            </div>
+            <p className="composer-caption">Your conversations are saved to your account.</p>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>;
+}
 
 export function LandingPage() {
   return <div className="landing">
@@ -41,135 +135,122 @@ export function LandingPage() {
         <Brand href="/" label="Nibie" />
         <div className="landing-nav-links">
           <a href="#product">Product</a>
-          <a href="#privacy">Privacy/Security</a>
-          <Link className="landing-button" href={chatPath}>Open Nibie</Link>
+          <a href="#personalization">Personalization</a>
+          <a href="#privacy">Privacy</a>
         </div>
+        <Link className="landing-button" href={chatPath}>Open Nibie</Link>
       </nav>
     </header>
     <main id="content">
-      <section className="landing-hero" aria-labelledby="landing-hero-title">
+      <section className="landing-hero landing-shell" aria-labelledby="landing-hero-title">
         <p className="landing-kicker">Personal AI workspace</p>
         <h1 id="landing-hero-title">A quieter place to think with AI.</h1>
         <p className="landing-lede">Nibie is your personal AI workspace for thinking, writing, coding, exploring ideas, and getting work done — without the clutter.</p>
         <div className="landing-actions">
-          <Link className="landing-button" href={chatPath}>Open Nibie</Link>
+          <Link className="landing-button" href={chatPath}>Try Nibie</Link>
           <a className="landing-button landing-button-secondary" href="#product">See how it works</a>
         </div>
       </section>
 
-      <section className="landing-section" id="product" aria-labelledby="landing-product-title">
-        <div className="landing-section-copy">
-          <h2 id="landing-product-title">The workspace</h2>
-          <p>A conversation, a mode you choose, and a composer. That is the workspace.</p>
+      <section className="landing-showcase" id="product" aria-labelledby="landing-product-title">
+        <h2 id="landing-product-title" className="landing-sr">The workspace</h2>
+        <WorkspaceFrame />
+      </section>
+
+      <section className="landing-shell landing-block" aria-labelledby="landing-uses-title">
+        <h2 id="landing-uses-title" className="landing-sr">What you can do here</h2>
+        <div className="landing-uses">
+          {useCases.map((item, index) => <article className={index % 2 === 1 ? "landing-use is-flipped" : "landing-use"} key={item.title}>
+            <div className="landing-use-copy">
+              <h3>{item.title}</h3>
+              <p>{item.copy}</p>
+            </div>
+            {item.visual}
+          </article>)}
         </div>
-        <figure className="landing-figure">
-          <div className="landing-frame" aria-hidden="true">
-            <div className="chat-workspace">
-              <aside className="workspace-sidebar desktop-sidebar">
-                <div className="sidebar-top"><Brand /></div>
-                <div className="new-chat-button"><Plus size={17} strokeWidth={2.2} /> <span>New chat</span></div>
-                <div className="history-nav">
-                  <section className="history-group">
-                    <p>Today</p>
-                    <div className="history-entry"><div className="history-item is-active"><MessageSquare size={15} /><span>Tighten the team note</span></div></div>
-                    <div className="history-entry"><div className="history-item"><MessageSquare size={15} /><span>Sketch of the parser</span></div></div>
-                  </section>
-                  <section className="history-group">
-                    <p>Yesterday</p>
-                    <div className="history-entry"><div className="history-item"><MessageSquare size={15} /><span>Questions about the launch</span></div></div>
-                  </section>
-                </div>
-              </aside>
-              <section className="chat-main">
-                <header className="chat-header">
-                  <div className="icon-button mobile-menu-button"><span className="landing-menu-glyph" /></div>
-                  <div className="header-model"><span className="model-dot" /><span>Nibie</span><span className="header-divider">/</span><span className="header-context">A little room to think</span></div>
-                  <div className="header-new-chat"><Plus size={16} /><span>New chat</span></div>
-                </header>
-                <div className="conversation-scroll has-messages">
-                  <div className="message-list">
-                    <div className="message-row user">
-                      <div className="message-column user">
-                        <div className="message-content user"><p>Help me tighten this before I send it to the team.</p></div>
-                      </div>
-                      <div className="user-avatar">Y</div>
-                    </div>
-                    <div className="message-row assistant">
-                      <div className="assistant-badge"><BrandMark /></div>
-                      <div className="message-content assistant">
-                        <p className="message-author">Nibie</p>
-                        <p>Lead with the decision, then the reason. One sentence on what changed is enough.</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div className="composer-dock">
-                  <div className="composer">
-                    <p className="landing-composer-placeholder">Message Nibie…</p>
-                    <div className="composer-tools">
-                      <div className="landing-modes"><span>Fast</span><span className="is-selected">Balanced</span><span>Reasoning</span></div>
-                      <div className="send-button"><ArrowUp size={18} strokeWidth={2.3} /></div>
-                    </div>
-                  </div>
-                  <p className="composer-caption">Your conversations are saved to your account.</p>
-                </div>
-              </section>
+      </section>
+
+      <section className="landing-shell landing-block" aria-labelledby="landing-why-title">
+        <h2 id="landing-why-title">AI that gets out of the way.</h2>
+        <ol className="landing-statements">
+          {statements.map(([index, sentence]) => <li key={index}>
+            <span aria-hidden="true">{index}</span>
+            <p>{sentence}</p>
+          </li>)}
+        </ol>
+      </section>
+
+      <section className="landing-shell landing-block" id="personalization" aria-labelledby="landing-preferences-title">
+        <div className="landing-personal">
+          <div className="landing-personal-copy">
+            <h2 id="landing-preferences-title">Make Nibie feel more like yours.</h2>
+            <p>You choose how Nibie responds and what context you want it to use.</p>
+            <p className="landing-emphasis">You decide what Nibie knows about you.</p>
+            <p>Personalization comes from the preferences you explicitly choose to save.</p>
+          </div>
+          <div className="landing-settings">
+            <SettingChoice label="Preferred language" options={["Auto", "English", "Bahasa Indonesia"]} selected="Auto" />
+            <SettingChoice label="Default model" options={["Fast", "Balanced", "Reasoning"]} selected="Balanced" />
+            <SettingChoice label="Response length" options={["Concise", "Balanced", "Detailed"]} selected="Balanced" />
+            <SettingChoice label="Response style" options={["Natural", "Professional", "Direct"]} selected="Natural" />
+            <div className="landing-setting">
+              <p className="landing-setting-label">Preferred name</p>
+              <p className="landing-setting-value" aria-hidden="true">Your name</p>
+              <p className="landing-sr">Not set</p>
+            </div>
+            <div className="landing-setting">
+              <p className="landing-setting-label">About you</p>
+              <p className="landing-setting-value is-tall" aria-hidden="true">Role, goals, or working context</p>
+              <p className="landing-sr">Not set</p>
             </div>
           </div>
-          <figcaption>Illustration of the Nibie workspace, with a conversation, a model mode, and the composer.</figcaption>
-        </figure>
-      </section>
-
-      <section className="landing-section" aria-labelledby="landing-uses-title">
-        <div className="landing-section-copy">
-          <h2 id="landing-uses-title">What you can do here</h2>
-          <p>Practical work, in a thread you can come back to.</p>
-        </div>
-        <div className="landing-grid landing-grid-4">
-          {useCases.map((item) => <article className="landing-card" key={item.title}><h3>{item.title}</h3><p>{item.copy}</p></article>)}
         </div>
       </section>
 
-      <section className="landing-section" aria-labelledby="landing-why-title">
-        <div className="landing-section-copy">
-          <h2 id="landing-why-title">AI that gets out of the way.</h2>
-          <p>Modes, preferences, and a single conversation. Nothing extra on the screen.</p>
+      <section className="landing-shell landing-block" aria-labelledby="landing-modes-title">
+        <h2 id="landing-modes-title" className="landing-sr">Modes</h2>
+        <div className="landing-mode-switch" aria-hidden="true">
+          <span>Fast</span>
+          <span className="is-selected">Balanced</span>
+          <span>Reasoning</span>
         </div>
-        <div className="landing-grid landing-grid-2">
-          {reasons.map((item) => <article className="landing-card" key={item.title}><h3>{item.title}</h3><p>{item.copy}</p></article>)}
-        </div>
-      </section>
-
-      <section className="landing-section" aria-labelledby="landing-preferences-title">
-        <div className="landing-section-copy">
-          <h2 id="landing-preferences-title">Personalization you can see</h2>
-          <p>These are the Settings choices that exist today. Nibie does not keep a hidden memory.</p>
-        </div>
-        <div className="landing-grid landing-grid-3">
-          {preferences.map((item) => <article className="landing-card" key={item.title}><h3>{item.title}</h3><p>{item.copy}</p></article>)}
+        <div className="landing-mode-list">
+          {modes.map(([name, copy]) => <article key={name}>
+            <h3>{name}</h3>
+            <p>{copy}</p>
+          </article>)}
         </div>
       </section>
 
-      <section className="landing-section landing-quote" aria-labelledby="landing-philosophy-title">
+      <section className="landing-quote landing-shell" aria-labelledby="landing-philosophy-title">
         <h2 id="landing-philosophy-title">AI should feel less like a feed and more like a room.</h2>
-        <p>A conversation can stay open while you think, revise, and build. Leave, then come back to the same thread.</p>
+        <p>A conversation can stay open while you think, revise, and build. Leave, then return to the same thread.</p>
       </section>
 
-      <section className="landing-section" id="privacy" aria-labelledby="landing-privacy-title">
-        <div className="landing-section-copy">
-          <h2 id="landing-privacy-title">Built with clear boundaries.</h2>
-          <p>What the product does today, stated plainly.</p>
-        </div>
-        <div className="landing-grid landing-grid-2">
-          {boundaries.map((item) => <article className="landing-card" key={item.title}><h3>{item.title}</h3><p>{item.copy}</p></article>)}
-        </div>
+      <section className="landing-shell landing-block" id="privacy" aria-labelledby="landing-privacy-title">
+        <h2 id="landing-privacy-title">Built with clear boundaries.</h2>
+        <ul className="landing-trust">
+          {boundaries.map((item) => <li key={item}><h3>{item}</h3></li>)}
+        </ul>
       </section>
 
-      <section className="landing-final" aria-labelledby="landing-final-title">
+      <section className="landing-final landing-shell" aria-labelledby="landing-final-title">
         <h2 id="landing-final-title">Make some room to think.</h2>
-        <p>Open the workspace when you want a quiet place to continue.</p>
-        <Link className="landing-button" href={chatPath}>Open Nibie</Link>
+        <p>Start a conversation with Nibie.</p>
+        <Link className="landing-button" href={chatPath}>Try Nibie</Link>
       </section>
     </main>
+    <footer className="landing-footer landing-shell">
+      <div className="landing-footer-brand">
+        <Brand />
+        <p>Personal AI workspace.</p>
+      </div>
+      <nav aria-label="Footer">
+        <a href="#product">Product</a>
+        <a href="#privacy">Privacy</a>
+        <Link href={chatPath}>Open Nibie</Link>
+      </nav>
+      <p className="landing-footer-meta">© 2026 Nibie</p>
+    </footer>
   </div>;
 }
