@@ -2,7 +2,7 @@
 
 import { memo, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import Link from "next/link";
-import { Archive, DoorOpen, FileText, MessageSquare, PanelLeftClose, Pencil, Plus, RotateCcw, Search, Settings, SquarePen, X } from "lucide-react";
+import { Archive, DoorOpen, FileText, MessageSquare, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCcw, Search, Settings, SquarePen, X } from "lucide-react";
 import { SIGN_OUT_LABEL } from "@/lib/privacy/sign-out";
 import { AccountMenu } from "@/components/account-menu";
 import { Brand } from "@/components/brand";
@@ -74,10 +74,10 @@ function ConversationSearchDialog({ conversations, archivedConversations, onOpen
 
 // Memoized: streaming tokens and typing never re-render the history list.
 export const ChatSidebar = memo(function ChatSidebar({ conversations, archivedConversations, rooms, activeId, activeRoomId, busy, preview, email, name, renderedAt, mobile = false, drawerRef, closeMenuRef, desktopToggleRef, desktopExpandRef, collapsed = false, settingsActive = false, onCollapse, onExpand, onClose, onOpen, onOpenRoom, onCreateRoom, onNewChat, onOpenSettings, onRename, onArchive, onRestore }: Props) {
-  // Server render and hydration group by the UTC calendar from the server's clock so both agree; once mounted, the viewer's own clock and
-  // time zone are used (the grouping is recomputed whenever the list changes).
+  // Use the supplied request timestamp for deterministic rendering. Once mounted,
+  // grouping uses the viewer's time zone instead of UTC.
   const mounted = useSyncExternalStore(noopSubscribe, () => true, () => false);
-  const now = useMemo(() => (mounted ? Date.now() : renderedAt ?? 0), [mounted, renderedAt]);
+  const now = renderedAt ?? 0;
   const visibleHistoryGroups = useMemo(() => historyGroups.flatMap((group) => {
     const entries = conversations.filter((item) => groupFor(item.updated_at, now, mounted ? undefined : "UTC") === group);
     return entries.length ? [{ group, entries }] : [];

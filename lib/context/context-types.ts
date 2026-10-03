@@ -1,4 +1,5 @@
 import type { UserPreferences } from "@/lib/preferences/types";
+import type { ChatModel } from "@/lib/chat/validation";
 import type { RoomContextInput } from "@/lib/context/room-context";
 
 export type { RoomContextInput } from "@/lib/context/room-context";
@@ -78,6 +79,8 @@ export type ThreadSummary = {
 };
 
 export type BuildContextInput = {
+  // The resolved mode only selects output-style guidance; provider selection is unchanged.
+  responseMode?: ChatModel;
   capabilities: ModelContextCapabilities;
   preferences: UserPreferences;
   preferenceReadFailed: boolean;

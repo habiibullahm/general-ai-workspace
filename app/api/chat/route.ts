@@ -128,6 +128,7 @@ async function respond(request: Request) {
   try {
     const started = Date.now();
     const plan = buildContext({
+      responseMode: mode,
       capabilities: contextCapabilitiesFor(mode),
       preferences: preferenceState.preferences,
       preferenceReadFailed: Boolean(preferenceState.error),

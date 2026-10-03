@@ -7,8 +7,9 @@ vi.mock("@/lib/ai/registry", () => ({ getModelOptions: modelOptions, contextCapa
 const allModes = { models: ["Fast", "Balanced", "Reasoning"].map((id) => ({ id, label: id, model: `${id.toLowerCase()}-id` })), reasoningModes: ["Reasoning"] };
 
 import { POST } from "../../app/api/chat/route";
-import { CONTEXT_DATA_PREAMBLE, CONTEXT_POLICY_TEXT } from "../../lib/context/context-policy";
+import { CONTEXT_DATA_PREAMBLE, CONTEXT_POLICY_TEXT, contextPolicyFor } from "../../lib/context/context-policy";
 import { readChatSse } from "../../lib/ai/sse";
+import { responseQualityFor } from "../../lib/ai/response-quality";
 
 let preferenceResult: { data: unknown; error: unknown } = { data: null, error: null };
 const assistantId = "e3b624e6-d792-47a8-8ff2-46724452c1ca";
@@ -453,6 +454,22 @@ describe("POST /api/chat", () => {
     expect(JSON.stringify(events)).not.toContain("Private reasoning");
   });
 
+  it.each((["Fast", "Balanced", "Reasoning"] as const).flatMap((mode) => [false, true].map((regenerate) => ({ mode, regenerate }))))("uses the resolved mode's quality policy for generation/retry: %j", async ({ mode, regenerate }) => {
+    readyClient([]);
+    stream.mockResolvedValue(sseBody("Hello"));
+    const request = validRequest();
+    const body = await request.json() as { conversationId: string; userMessageId: string };
+    const response = await POST(new Request(request.url, { method: "POST", headers: request.headers, body: JSON.stringify({ ...body, model: mode, regenerate }) }));
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('"status":"complete"');
+    const messages = stream.mock.calls[0][1] as { role: string; content: string }[];
+    expect(messages[0]).toEqual({ role: "system", content: contextPolicyFor(mode) });
+    expect(messages[0].content.split(responseQualityFor(mode))).toHaveLength(2);
+    expect(messages.at(-1)).toEqual({ role: "user", content: "hello" });
+    expect(stream.mock.calls[0][0]).toBe(mode);
+    expect(claim).toHaveBeenCalledWith(regenerate ? "regenerate_assistant_message" : "claim_assistant_message", expect.any(Object));
+  });
+
   describe("account preferences in the provider context", () => {
     const saved = {
       preferred_language: "id",
@@ -508,7 +525,7 @@ describe("POST /api/chat", () => {
       }));
       expect(response.status).toBe(200);
       const messages = stream.mock.calls[0][1] as { role: string; content: string }[];
-      expect(messages[0].content).toBe(CONTEXT_POLICY_TEXT);
+      expect(messages[0].content).toBe(contextPolicyFor("Fast"));
       expect(messages[0].content).not.toContain("SECRET CONTEXT");
       expect(stream.mock.calls[0][0]).toBe("Fast");
     });
