@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { LogOut, Settings } from "lucide-react";
+import { ArrowUpRight, CircleHelp, LogOut, Settings } from "lucide-react";
 import { signOutAction } from "@/app/actions/auth";
+import { changelogAnchorHref, changelogMenuLink } from "@/lib/changelog";
 
 type Props = {
   email: string;
@@ -26,6 +27,8 @@ export function AccountMenu({ email, name, onOpenSettings, compact = false }: Pr
   // A click or Escape that closes the menu should stay closed while the pointer is still on the trigger.
   const [suppressHover, setSuppressHover] = useState(false);
   const open = pinned || (hovering && !suppressHover);
+  const updatesHref = changelogAnchorHref(process.env.NEXT_PUBLIC_APP_URL);
+  const pendingFocus = useRef<"first" | "last" | null>(null);
   const initial = (name || email).slice(0, 1).toUpperCase();
 
   function clearCloseTimer() {
@@ -68,7 +71,55 @@ export function AccountMenu({ email, name, onOpenSettings, compact = false }: Pr
     onOpenSettings();
   }
 
+  function focusMenuItem(direction: 1 | -1 | "first" | "last") {
+    const items = Array.from(rootRef.current?.querySelectorAll<HTMLElement>("[role='menuitem']") ?? []);
+    if (!items.length) return;
+    const current = items.indexOf(document.activeElement as HTMLElement);
+    const index = direction === "first" ? 0
+      : direction === "last" ? items.length - 1
+      : current < 0 ? (direction === 1 ? 0 : items.length - 1)
+      : (current + direction + items.length) % items.length;
+    items[index]?.focus();
+  }
+
+  function onTriggerKeyDown(event: React.KeyboardEvent<HTMLButtonElement>) {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    const target = event.key === "ArrowUp" ? "last" : "first";
+    if (open) {
+      focusMenuItem(target);
+      return;
+    }
+    pendingFocus.current = target;
+    setSuppressHover(false);
+    setPinned(true);
+  }
+
+  function onMenuKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "ArrowDown") { event.preventDefault(); focusMenuItem(1); }
+    else if (event.key === "ArrowUp") { event.preventDefault(); focusMenuItem(-1); }
+    else if (event.key === "Home") { event.preventDefault(); focusMenuItem("first"); }
+    else if (event.key === "End") { event.preventDefault(); focusMenuItem("last"); }
+  }
+
+  function openUpdates(event: React.MouseEvent<HTMLAnchorElement>) {
+    const link = changelogMenuLink(process.env.NEXT_PUBLIC_APP_URL, window.location.origin);
+    if (!link.external) return;
+    event.preventDefault();
+    window.open(link.href, "_blank", "noopener,noreferrer");
+    dismiss(true);
+  }
+
   useEffect(() => () => clearCloseTimer(), []);
+
+  useEffect(() => {
+    if (!open || !pendingFocus.current) return;
+    const target = pendingFocus.current;
+    pendingFocus.current = null;
+    const items = rootRef.current?.querySelectorAll<HTMLElement>("[role='menuitem']");
+    if (!items?.length) return;
+    (target === "last" ? items[items.length - 1] : items[0]).focus();
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -91,17 +142,22 @@ export function AccountMenu({ email, name, onOpenSettings, compact = false }: Pr
   }, [open]);
 
   return <div className={`account-menu${compact ? " is-compact" : ""}`} ref={rootRef} onPointerEnter={pointerEnter} onPointerLeave={pointerLeave}>
-    <button ref={triggerRef} type="button" className="account-profile" aria-label={compact ? "Account" : undefined} title={compact ? "Account" : undefined} aria-haspopup="menu" aria-expanded={open} aria-controls={open ? menuId : undefined} onClick={toggle}>
+    <button ref={triggerRef} type="button" className="account-profile" aria-label={compact ? "Account" : undefined} title={compact ? "Account" : undefined} aria-haspopup="menu" aria-expanded={open} aria-controls={open ? menuId : undefined} onClick={toggle} onKeyDown={onTriggerKeyDown}>
       <span className="avatar" aria-hidden="true">{initial || "?"}</span>
       <span className="account-copy">
         <span className="account-name">{name}</span>
         <span className="account-email" title={email}>{email}</span>
       </span>
     </button>
-    {open && <div id={menuId} className="account-menu-panel" role="menu" aria-label="Account">
+    {open && <div id={menuId} className="account-menu-panel" role="menu" aria-label="Account" onKeyDown={onMenuKeyDown}>
       <p className="account-menu-kicker">Signed in as</p>
       <p className="account-menu-identity">{email}</p>
       <button type="button" className="account-menu-action" role="menuitem" onClick={openSettings}><Settings size={15} aria-hidden="true" />Settings</button>
+      <a className="account-menu-action" role="menuitem" href={updatesHref} aria-label="View Nibie updates" onClick={openUpdates}>
+        <CircleHelp size={15} aria-hidden="true" />
+        <span className="account-menu-action-label">What&apos;s new</span>
+        <ArrowUpRight size={13} aria-hidden="true" />
+      </a>
       <form action={signOutAction}><button className="account-menu-signout" type="submit" role="menuitem"><LogOut size={15} aria-hidden="true" />Sign out</button></form>
     </div>}
   </div>;
