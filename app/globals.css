@@ -100,6 +100,7 @@ button:focus-visible, a:focus-visible, select:focus-visible, textarea:focus-visi
 .chat-workspace { display: flex; width: 100%; height: 100dvh; min-height: 520px; overflow: hidden; background: var(--bg-app); }
 .workspace-sidebar { flex: 0 0 264px; width: 264px; background: var(--bg-sidebar); border-right: 1px solid var(--border); padding: 22px 14px 12px; display: flex; flex-direction: column; min-height: 0; }
 .sidebar-top { display: flex; align-items: center; justify-content: space-between; padding: 0 5px 25px 4px; }
+.sidebar-controls { display: flex; align-items: center; gap: 2px; }
 .brand-lockup { display: inline-flex; align-items: center; gap: 9px; color: var(--text); text-decoration: none; font-weight: 650; letter-spacing: -.04em; font-size: 19px; }
 .brand-mark { display: grid; place-items: center; flex: none; width: 27px; height: 27px; color: var(--mark-fg); background: var(--mark-bg); border-radius: 9px; font-family: Georgia, serif; font-size: 19px; font-weight: 400; letter-spacing: -.08em; padding-right: 2px; line-height: 1; }
 .brand-mark img, .brand-mark svg { display: block; width: 100%; height: 100%; }
@@ -111,6 +112,19 @@ button:focus-visible, a:focus-visible, select:focus-visible, textarea:focus-visi
 .new-chat-button { display: flex; align-items: center; gap: 10px; height: 41px; padding: 0 11px; background: var(--bg-raised); border: 1px solid var(--border); border-radius: 10px; text-align: left; font-size: 13px; font-weight: 550; cursor: pointer; box-shadow: var(--shadow-sm); }
 .new-chat-button:hover { background: var(--hover); border-color: var(--border-strong); }
 a.sidebar-workbench { margin-top: 8px; color: inherit; text-decoration: none; }
+.chat-search-dialog { width: min(560px, calc(100vw - 32px)); max-height: min(600px, calc(100dvh - 48px)); margin: auto; padding: 0; border: 1px solid var(--border); border-radius: 16px; color: var(--text); background: var(--bg-raised); box-shadow: var(--shadow-menu); overflow: hidden; }
+.chat-search-dialog::backdrop { background: var(--scrim); }
+.chat-search-panel { display: flex; flex-direction: column; max-height: min(600px, calc(100dvh - 48px)); }
+.chat-search-dialog .settings-header { flex: none; }
+.chat-search-results { min-height: 0; overflow: auto; padding: 0 10px 16px; }
+.chat-search-results .history-item { height: 44px; }
+.chat-search-results .history-action { opacity: 1; width: 36px; height: 36px; }
+.history-search { display: flex; align-items: center; gap: 8px; flex: none; height: 40px; margin: 16px 18px; padding: 0 10px; border: 1px solid var(--border); border-radius: 9px; color: var(--text-4); background: var(--bg-app); }
+.history-search svg { flex: none; }
+.history-search:focus-within { outline: 3px solid var(--focus); outline-offset: 2px; }
+.history-search input { min-width: 0; width: 100%; border: 0; padding: 0; background: transparent; color: var(--text); font: inherit; font-size: 12px; outline: none; }
+.history-search input::placeholder { color: var(--text-4); }
+.history-search-status { margin: 0 9px 18px; color: var(--text-3); font-size: 12px; line-height: 1.5; }
 .history-nav { min-height: 0; overflow: auto; padding-top: 23px; scrollbar-width: thin; }
 .history-group { margin-bottom: 22px; }
 .history-group h2 { margin: 0 9px 8px; color: var(--text-4); font-size: 10px; line-height: 1.4; letter-spacing: .09em; text-transform: uppercase; font-weight: 650; }
@@ -224,6 +238,11 @@ a.sidebar-workbench { margin-top: 8px; color: inherit; text-decoration: none; }
 .header-new-chat:hover:not(:disabled) { background: var(--hover); }
 .desktop-sidebar-toggle { display: grid; flex: none; }
 .mobile-menu-button { display: none; }
+.sidebar-logo-toggle { position: relative; }
+.sidebar-logo-toggle .brand-mark, .sidebar-logo-toggle .menu-toggle-mark { transition: opacity .15s ease; }
+.sidebar-logo-toggle .menu-toggle-mark { position: absolute; opacity: 0; }
+.sidebar-logo-toggle:hover .brand-mark, .sidebar-logo-toggle:focus-visible .brand-mark { opacity: 0; }
+.sidebar-logo-toggle:hover .menu-toggle-mark, .sidebar-logo-toggle:focus-visible .menu-toggle-mark { opacity: 1; }
 .conversation-scroll { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
 .conversation-scroll.is-empty { display: flex; align-items: center; justify-content: center; padding: 30px 20px 135px; }
 .welcome-panel { width: min(100%, 530px); text-align: center; transform: translateY(-12px); }
@@ -340,6 +359,7 @@ a.sidebar-workbench { margin-top: 8px; color: inherit; text-decoration: none; }
 
 /* M5: Markdown, code blocks, and last-turn controls */
 .markdown { min-width: 0; color: var(--text-2); font-size: 14px; line-height: 1.78; overflow-wrap: anywhere; }
+.markdown.is-streaming { white-space: pre-wrap; }
 .markdown > :first-child { margin-top: 0; }
 .markdown > :last-child { margin-bottom: 0; }
 .markdown p { margin: 0 0 12px; white-space: normal; }
@@ -492,9 +512,9 @@ a.sidebar-workbench { margin-top: 8px; color: inherit; text-decoration: none; }
 .workbench-shell { display: flex; flex-direction: column; min-height: 100dvh; background: var(--bg-app); color: var(--text); }
 .workbench-top { display: flex; align-items: center; gap: 16px; min-height: 60px; padding: 12px 20px; border-bottom: 1px solid var(--border); }
 .workbench-top h1 { margin: 0; font-size: 16px; font-weight: 650; letter-spacing: -.02em; }
-.workbench-back { color: var(--text-3); font-size: 13px; text-decoration: none; }
+.workbench-back { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 34px; color: var(--text-3); text-decoration: none; }
 .workbench-back:hover { color: var(--text); }
-.workbench-create, .workbench-delete { margin-left: auto; min-height: 34px; padding: 0 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-raised); color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
+.workbench-create, .workbench-delete { display: inline-flex; align-items: center; justify-content: center; gap: 8px; margin-left: auto; min-height: 34px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-raised); color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
 .workbench-create:hover, .workbench-delete:hover:not(:disabled) { background: var(--hover); }
 .workbench-create:disabled, .workbench-delete:disabled { opacity: .55; cursor: default; }
 .workbench-delete { color: var(--danger); }
