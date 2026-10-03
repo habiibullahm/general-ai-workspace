@@ -3,7 +3,7 @@
 **Status:** Implemented in the current app. This file remains the design spec. For what V1 actually ships, use [V1_RELEASE.md](./V1_RELEASE.md).
 **Product:** Nibie  
 **Baseline:** `c693106` on `main`  
-**Implementation:** landed through `feature/staging-v1` (profile, room, and recent-message context; thread summary stays unused)
+**Implementation:** landed through `feature/staging-v1` (profile, room, room pins, explicitly selected file text, and recent-message context; thread summary stays unused)
 
 Related:
 
@@ -12,7 +12,7 @@ Related:
 - [SECURITY_MODEL.md](../security/SECURITY_MODEL.md) — sections 14, 15, and 20
 - [Settings V1](../feature/settings/v1.md) — the only profile source
 
-This document is the Context Engine V1 design spec. The engine, Rooms, and Room Briefs now ship; see [V1_RELEASE.md](./V1_RELEASE.md). Pins, Files, Recall, Actions, and the Fastify chat cutover are still out of scope.
+This document is the Context Engine V1 design spec. The engine, Rooms, Room Briefs, Pins, explicitly selected Files, and Workbench now ship; see [V1_RELEASE.md](./V1_RELEASE.md). Recall, Actions, and the Fastify chat cutover are still out of scope.
 
 ---
 

@@ -1,8 +1,6 @@
 # Nibie V1 release
 
-Status: release notes for `feat/v1-release-hardening`, based on `feature/staging-v1` at `2d006149cfe4c3f0644cb282bb3375b791886977`.
-
-This is the V1 source of truth. Pins, Files, and Workbench are not part of this branch. Do not deploy from this document alone; follow the sequence below after a backup.
+Status: release notes for the integrated `feature/staging-v1` candidate. Do not deploy from this document alone; follow the sequence below after a backup.
 
 ## V1 feature set
 
@@ -12,15 +10,17 @@ Ships:
 - Email sign-in and sign-up, Google sign-in, auth callback, and sign-out everywhere
 - Chat: new chat, streaming, Stop, Retry, Regenerate, edit and resend of the latest user message, model modes, reasoning effort, refresh, and conversation restore
 - Archive and restore for conversations
-- Context Engine: explicit profile, Room instructions and Room Brief, and recent messages. The thread-summary slot stays empty
+- Context Engine: explicit profile, Room instructions and Room Brief, room Pins, explicitly selected room-file text, and recent messages. The thread-summary slot stays empty. Pin and file text are untrusted data and cannot override the current request
 - Rooms: create, rename, instructions, editable brief, new thread, move thread, delete Room. Deleting a Room detaches its threads; it does not delete them
+- Pins: create, edit, and delete inside a Room. A general thread does not receive that Room's pins
+- Files: owner-scoped plain-text, Markdown, and CSV files on a Room, used only when the sender explicitly selects them. No embeddings, OCR, or retrieval
+- Workbench: create, edit, save, refresh, and delete an owner document. A document may have no Room. Deleting a Room detaches the document. A finished assistant reply can be opened as a document
 - Settings: General, Nibie, Chat, Personalization, Data & Privacy
 - Account menu: profile, Settings, sign out
 - Conversation export and delete-all, both limited to the signed-in owner
 
 Does not ship:
 
-- Pins, Files, Workbench
 - Recall, Actions, RAG, agents, or web search
 - Account deletion
 - A per-account rate limit or provider spend ceiling
@@ -37,6 +37,9 @@ Drizzle journal order:
 4. `drizzle/0003_user_preferences.sql` — owner preferences, forced RLS
 5. `drizzle/0004_rooms.sql` — rooms, room briefs, `conversations.room_id`, forced RLS. Deleting a room sets only `conversations.room_id` to null. Requires PostgreSQL 15 or newer for `ON DELETE SET NULL (room_id)`
 6. `drizzle/0005_superb_frank_castle.sql` — `conversations.archived_at`
+7. `drizzle/0006_pins.sql` — owner-scoped room pins, forced RLS, cascade delete with the room
+8. `drizzle/0007_room_files.sql` — owner-scoped room files, forced RLS, cascade delete with the room
+9. `drizzle/0008_workbench.sql` — owner-scoped workbench documents, forced RLS. Deleting a room sets only `room_id` to null
 
 `0003` does not change conversations or messages. `0005` does not change preferences or rooms. Do not regenerate `0004` from `lib/db/schema.ts`; the SQL, not the Drizzle `onDelete("set null")` shorthand, is authoritative for the column-specific null.
 
@@ -74,8 +77,8 @@ Optional tests:
 ## Supabase
 
 1. Use the Nibie project. Confirm the database is the intended one before migrating.
-2. Apply the six migrations in the order above (`npm run db:migrate` against that `DATABASE_URL`).
-3. Confirm RLS is enabled and forced on `users`, `conversations`, `messages`, `user_preferences`, `rooms`, and `room_briefs`.
+2. Apply the nine migrations in the order above (`npm run db:migrate` against that `DATABASE_URL`).
+3. Confirm RLS is enabled and forced on `users`, `conversations`, `messages`, `user_preferences`, `rooms`, `room_briefs`, `pins`, `room_files`, and `workbench_documents`.
 4. Enable Email auth. Enable the Google provider with the Google client id and secret stored in Supabase, not in the Next.js bundle.
 5. Set the Site URL to `NEXT_PUBLIC_APP_URL`.
 6. Allow the auth callback: `https://<production-host>/auth/callback`. Add each Vercel preview host only if that preview should complete Google sign-in.
@@ -93,7 +96,7 @@ Optional tests:
 Do not skip the backup.
 
 1. Confirm the target database and take a backup.
-2. Apply migrations `0000` through `0005` in journal order.
+2. Apply migrations `0000` through `0008` in journal order.
 3. Verify RLS is still enabled and forced, and that a second user cannot read another user's rows.
 4. Deploy the Next.js app with the runtime environment above. Do not deploy `DATABASE_URL` or a service-role key to the browser.
 5. Smoke auth: email sign-in, Google sign-in, callback, and sign out.
@@ -120,7 +123,7 @@ Signed in:
 - Stop a long reply; the conversation is not left spinning after refresh
 - Retry and Regenerate only affect the latest turn
 - Change Fast / Balanced / Reasoning; the request body mode is one of those three names
-- Context panel names profile, room, summary, and recent messages without quoting About you or the brief
+- Context panel names profile, room, pinned context, file context, summary, and recent messages without quoting About you, the brief, pin text, or file text
 - Create a Room, put a thread in it, delete the Room, and open that thread from the general list
 - Export downloads `nibie-export-v1.json` and does not accept `user_id`
 - Delete-all refuses a missing or wrong confirmation
@@ -139,9 +142,6 @@ Signed in:
 
 ## Deferred V1.x
 
-- Pins
-- Files
-- Workbench
 - Recall and any hidden memory
 - Actions, tools, and agents
 - RAG and web search
@@ -149,4 +149,4 @@ Signed in:
 - Shared rate-limit storage and a spend ceiling
 - Fastify cutover of chat
 
-After Pins, Files, or Workbench land on `feature/staging-v1`, fast-forward this branch and repeat auth, chat, Rooms, Settings, privacy, RLS, and mobile QA before production.
+Repeat auth, chat, Rooms, Pins, Files, Workbench, Settings, privacy, RLS, and mobile QA before production. Staging migrations are not applied to production by this branch.

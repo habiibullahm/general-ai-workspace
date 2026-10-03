@@ -238,6 +238,8 @@ It should be user-owned and optionally AI-maintained. Users must be able to insp
 
 ## 8. Pins
 
+Pins V1 is specified in [PINS_V1.md](./PINS_V1.md): a room-owned title and note the user saves on purpose. The wider sources below (messages, files, workbench excerpts) are not part of that version.
+
 Pins let the user deliberately mark information as important context. Pins may come from messages, Workbench items, files, file excerpts, decisions, or custom notes.
 
 Context priority:
@@ -273,6 +275,8 @@ Add a nullable `room_id` so general conversations continue to work.
 ---
 
 ## 10. Workbench
+
+**V1 is a persistent editable document, not the model below.** The shipped surface is one owner-scoped markdown document at `/workbench`, described in [WORKBENCH_V1.md](./WORKBENCH_V1.md). Deleting a Room clears only the document's `room_id`. V1 has no versions, types, collaboration, export, or automatic context injection. The rest of this section is the later target.
 
 Chat should not be the final destination for useful outputs. Workbench stores persistent structured work beside the Thread.
 
