@@ -17,7 +17,7 @@ function input(request: string, mode: ChatModel = "Fast", overrides: Partial<Bui
   };
 }
 
-describe.each<ChatModel>(["Fast", "Balanced", "Reasoning"])("response quality provider contract: %s", (mode) => {
+describe.each<ChatModel>(["Fast", "Balanced", "High"])("response quality provider contract: %s", (mode) => {
   it.each(responseQualityCases)("composes the actual context for $id", ({ request, context, expected }) => {
     const plan = buildContext(input(request, mode, context));
     const messages = toProviderMessages(plan);
@@ -46,7 +46,7 @@ describe("response quality rules and compatibility", () => {
   });
 
   it("keeps requested detail independent of model and reasoning effort", () => {
-    for (const mode of ["Fast", "Balanced", "Reasoning"] as const) {
+    for (const mode of ["Fast", "Balanced", "High"] as const) {
       const policy = responseQualityFor(mode);
       expect(policy).toBe(RESPONSE_QUALITY_POLICY);
       expect(policy).toMatch(/shortest answer that fully satisfies the requested depth/i);
@@ -111,5 +111,23 @@ describe("response quality rules and compatibility", () => {
     const messages = toProviderMessages(plan);
     expect(messages.find((message) => message.role === "assistant")?.content).toBe("Visible answer");
     expect(messages.at(-1)?.content).toBe(current);
+  });
+});
+
+describe("adaptive response detail does not depend on the picker mode", () => {
+  const compose = (request: string, mode: ChatModel) => toProviderMessages(buildContext(input(request, mode)));
+
+  it.each([
+    ["Fast", "jelaskan secara detail bagaimana Room bekerja, lengkap dengan contoh"],
+    ["High", "jawab singkat: apa itu Room?"],
+  ] as const)("%s sends the same instructions and the untouched request: %s", (mode, request) => {
+    const messages = compose(request, mode);
+    for (const other of ["Fast", "Balanced", "High"] as const) expect(compose(request, other)).toEqual(messages);
+    expect(messages.at(-1)).toEqual({ role: "user", content: request });
+    // The mode adds no length instruction of its own: no word budgets, no mode names, no per-mode brevity or verbosity rule.
+    const system = messages[0].content;
+    expect(system).not.toMatch(/\b\d+\s*(?:words|sentences|bullets)\b|~\s*\d+|Fast:|Balanced:|High:|Reasoning:/i);
+    expect(system).toMatch(/Model and reasoning effort never set answer length/);
+    expect(system).toMatch(/expand when requested/);
   });
 });

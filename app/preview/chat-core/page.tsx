@@ -4,14 +4,17 @@ import type { PersistedMessage } from "@/lib/chat/read";
 import { validateConversationId } from "@/lib/chat/validation";
 import { ChatCoreComposerFixture } from "@/tests/fixtures/chat-core-composer";
 import { ChatWorkspace } from "@/components/chat-workspace";
-import { getModelOptions } from "@/lib/ai/registry";
+import { modelPickerCopy, type ModelOption } from "@/lib/chat/models";
 import { requestTime } from "@/lib/chat/groups";
+
+// Dev-only harness: all three modes, independent of which providers this machine has configured.
+const workspaceModels: ModelOption[] = (["Fast", "Balanced", "High"] as const).map((id) => ({ id, ...modelPickerCopy[id] }));
 
 export default async function ChatCorePreview({ searchParams }: { searchParams: Promise<{ workspace?: string; mode?: string }> }) {
   if (process.env.NODE_ENV === "production") notFound();
   const query = await searchParams;
   if (query.workspace === "1") {
-    const mode = query.mode === "Fast" || query.mode === "Reasoning" ? query.mode : "Balanced";
+    const mode = query.mode === "Fast" || query.mode === "High" ? query.mode : "Balanced";
     const stamp = "2026-10-04T00:00:00.000Z";
     const conversation = { id: "5e9bdcca-9205-4fea-a773-13952bb78c44", title: "Stop acceptance", selected_model: mode, room_id: null, created_at: stamp, updated_at: stamp };
     const messages: PersistedMessage[] = [];
@@ -30,7 +33,7 @@ export default async function ChatCorePreview({ searchParams }: { searchParams: 
         );
       }
     }
-    return <ChatWorkspace email="acceptance@nibie.local" {...getModelOptions()} renderedAt={requestTime()}
+    return <ChatWorkspace email="acceptance@nibie.local" models={workspaceModels} renderedAt={requestTime()}
       initialData={{ conversations: [conversation], archivedConversations: [], rooms: [], messages, activeId: conversation.id, error: null }} />;
   }
   return <ChatCoreComposerFixture />;
