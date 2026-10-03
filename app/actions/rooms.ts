@@ -7,6 +7,8 @@ import { parseRoomBrief, parseRoomDraft, parseRoomPatch } from "@/lib/rooms/vali
 import type { RoomBriefFields, RoomOverview } from "@/lib/rooms/types";
 import type { RoomBriefRow } from "@/lib/rooms/map";
 import { generateRoomOverview } from "@/lib/rooms/generate";
+import { operationalCodes } from "@/lib/observability/codes";
+import { logError } from "@/lib/observability/logger";
 
 export type RoomActionResult<T = undefined> = { data?: T; error?: string };
 
@@ -42,7 +44,7 @@ export async function draftRoomAction(input: unknown): Promise<RoomActionResult<
   try { await authenticatedClient(); } catch { return { error: sessionFailed }; }
   try { return { data: await generateRoomOverview(parsed.data) }; }
   catch (error) {
-    console.error("room_draft_failed", error instanceof Error ? error.name : "UnknownError");
+    logError("room.draft.failed", { code: operationalCodes.roomDraftFailed, errorName: safeErrorName(error) });
     return { error: "Nibie couldn't draft this room. Try again or set it up manually." };
   }
 }
@@ -146,4 +148,9 @@ export async function deleteRoomAction(id: unknown): Promise<RoomActionResult> {
   } catch {
     return { error: sessionFailed };
   }
+}
+
+function safeErrorName(error: unknown) {
+  const name = error instanceof Error ? error.name : "UnknownError";
+  return /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(name) ? name : "UnknownError";
 }

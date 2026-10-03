@@ -13,7 +13,8 @@
     "test:e2e": "playwright test",
     "test:chat:e2e": "node scripts/chat-e2e.mjs",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "release:check": "node scripts/check-release.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

@@ -777,21 +777,23 @@ V1 adds no service-role client, no `DATABASE_URL` read, and no change to RLS.
 
 ## 16. Observability
 
-One structured line when a plan is built, written with the current server logging (`console`), as a single JSON object. No new logger dependency. Fastify can adopt the same fields later.
+One structured line when a plan is built, written by `lib/observability/logger.ts` as a single JSON object. No logging dependency. The same `requestId` is used on `chat.response.started`, `context.built`, and `chat.response.completed` or `chat.response.failed`. See `docs/engineering/OBSERVABILITY.md`.
 
 ```text
 event: context.built
-context.build.duration_ms
-context.source.count          included blocks
-context.profile.included      boolean
-context.summary.included      boolean
-context.recent_message_count  included dialogue messages, including the current one
-context.estimated_tokens      sum of included block estimates
-context.truncated             boolean
-context.policy_version        "context-policy-v1"
+requestId
+durationMs
+profileIncluded
+roomIncluded                 omitted when this thread has no room block
+summaryIncluded
+sourceCount                  included blocks
+recentMessageCount           included dialogue messages, including the current one
+estimatedTokens
+truncated
+policyVersion                "context-policy-v1"
 ```
 
-Request id joins this line once the route has one. V1 does not need a new id scheme.
+The logger also adds `release`, `sha`, `branch`, `environment`, and `level`. Pins and files are not part of this baseline, so those inclusion flags are not logged.
 
 Never log:
 
@@ -804,7 +806,7 @@ Never log:
 - provider payloads
 - cookies, tokens, or keys
 
-A preference read failure may keep today’s `preference_read_failed` event, with no preference body. A diagnostics projection failure may log `context.diagnostics_failed` and still stream. That line also carries no content.
+A preference read failure logs `preferences.read.failed` with code `PREFERENCE_READ_FAILED` and no preference body. A diagnostics projection failure may log `context.diagnostics_failed` and still stream. That line also carries no content.
 
 ---
 

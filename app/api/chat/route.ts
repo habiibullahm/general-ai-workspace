@@ -13,6 +13,9 @@ import { CONTEXT_POLICY_VERSION } from "@/lib/context/context-policy";
 import type { RoomContextInput } from "@/lib/context/room-context";
 import { roomContextFromRows, type RoomBriefRow } from "@/lib/rooms/map";
 import { loadOwnerPreferences } from "@/lib/preferences/store";
+import { operationalCodes } from "@/lib/observability/codes";
+import { logError, logInfo, logWarn } from "@/lib/observability/logger";
+import { requestIdFrom } from "@/lib/observability/request-id";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,13 +26,18 @@ const safeError = "Nibie couldn't complete that response. Please try again.";
 function event(type: string, data: unknown) { return `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`; }
 
 export async function POST(request: Request) {
-  try { return await respond(request); }
-  catch { return NextResponse.json({ error: safeError }, { status: 503 }); }
+  const requestId = requestIdFrom(request);
+  try { return await respond(request, requestId); }
+  catch {
+    logError("chat.response.failed", { requestId, stage: "request", code: operationalCodes.requestFailed });
+    return NextResponse.json({ error: safeError }, { status: 503 });
+  }
 }
 
-async function respond(request: Request) {
+async function respond(request: Request, requestId: string) {
   const supabase = await createSupabaseServerClient();
   // The session comes from the verified access token (no Auth round trip); row-level security still scopes every query below to its owner.
+  // A missing session does not emit chat.response.started. Operators treat that absence as an auth or save-path miss.
   if (!await getAuthenticatedUser(supabase)) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   const origin = request.headers.get("origin");
   if (origin && origin !== new URL(request.url).origin) return NextResponse.json({ error: "Invalid request origin." }, { status: 403 });
@@ -59,7 +67,7 @@ async function respond(request: Request) {
     supabase.from("messages").select("role,content,status,position").eq("conversation_id", parsedId.data).eq("status", "complete").order("position", { ascending: false }).limit(34),
     loadOwnerPreferences(supabase),
   ]);
-  if (preferenceState.error) console.error("preference_read_failed");
+  if (preferenceState.error) logError("preferences.read.failed", { requestId, code: operationalCodes.preferenceReadFailed });
   let conversation = loadedConversation;
   let conversationError = loadedConversationError;
   if (schemaUnavailable(conversationError)) {
@@ -97,10 +105,22 @@ async function respond(request: Request) {
   const headers = { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache, no-transform" };
   if (assistant.replayed) return new Response(event("start", { id: assistant.id, position: assistant.position }) + event("delta", { text: assistant.content }) + event("status", { status: "complete" }) + event("done", {}), { headers });
 
+  const responseStartedAt = Date.now();
+  const durationMs = () => Date.now() - responseStartedAt;
+  logInfo("chat.response.started", { requestId, regenerate, mode });
+
   const persist = async (content: string, status: "complete" | "interrupted" | "error") => {
-    const { data, error } = await supabase.from("messages").update({ content, status }).eq("id", assistant.id).eq("status", "streaming").select("id").maybeSingle();
-    if (error || !data) console.error("assistant_state_persist_failed");
-    return !error && Boolean(data);
+    try {
+      const { data, error } = await supabase.from("messages").update({ content, status }).eq("id", assistant.id).eq("status", "streaming").select("id").maybeSingle();
+      if (error || !data) {
+        logError("chat.persistence.failed", { requestId, code: operationalCodes.assistantPersistFailed, stage: "persist", status });
+        return false;
+      }
+      return true;
+    } catch {
+      logError("chat.persistence.failed", { requestId, code: operationalCodes.assistantPersistFailed, stage: "persist", status });
+      return false;
+    }
   };
   let prompt: ReturnType<typeof toProviderMessages> | undefined;
   let context: ReturnType<typeof buildContext>["diagnostics"] | undefined;
@@ -117,24 +137,25 @@ async function respond(request: Request) {
     });
     prompt = toProviderMessages(plan);
     context = plan.diagnostics;
-    const profile = plan.blocks.some((block) => block.id === "profile" && block.included);
+    const profileIncluded = plan.blocks.some((block) => block.id === "profile" && block.included);
     const roomIncluded = plan.blocks.some((block) => block.id === "room" && block.included);
-    const summary = plan.blocks.some((block) => block.id === "thread_summary" && block.included);
-    console.info(JSON.stringify({
-      event: "context.built",
-      "context.build.duration_ms": Date.now() - started,
-      "context.source.count": plan.blocks.filter((block) => block.included).length,
-      "context.profile.included": profile,
-      "context.room.included": roomIncluded,
-      "context.summary.included": summary,
-      "context.recent_message_count": plan.diagnostics.recentMessageCount,
-      "context.estimated_tokens": plan.budget.estimatedTokens,
-      "context.truncated": plan.budget.truncated,
-      "context.policy_version": CONTEXT_POLICY_VERSION,
-    }));
+    const summaryIncluded = plan.blocks.some((block) => block.id === "thread_summary" && block.included);
+    logInfo("context.built", {
+      requestId,
+      durationMs: Date.now() - started,
+      profileIncluded,
+      roomIncluded,
+      summaryIncluded,
+      sourceCount: plan.blocks.filter((block) => block.included).length,
+      recentMessageCount: plan.diagnostics.recentMessageCount,
+      estimatedTokens: plan.budget.estimatedTokens,
+      truncated: plan.budget.truncated,
+      policyVersion: CONTEXT_POLICY_VERSION,
+    });
   } catch {
-    console.error("context_build_failed");
-    try { await persist("Response unavailable.", "error"); } catch { console.error("assistant_state_persist_failed"); }
+    logError("context.build.failed", { requestId, code: operationalCodes.contextBuildFailed, stage: "context", durationMs: durationMs() });
+    logError("chat.response.failed", { requestId, code: operationalCodes.contextBuildFailed, stage: "context", durationMs: durationMs() });
+    try { await persist("Response unavailable.", "error"); } catch { logError("chat.persistence.failed", { requestId, code: operationalCodes.assistantPersistFailed, stage: "persist", status: "error" }); }
     return NextResponse.json({ error: safeError }, { status: 503 });
   }
   if (!prompt || !context) return NextResponse.json({ error: safeError }, { status: 503 });
@@ -148,7 +169,9 @@ async function respond(request: Request) {
   let responseStream: ReadableStream<Uint8Array>;
   try { responseStream = await chatProvider.stream(mode, prompt, aborter.signal, { reasoning }); }
   catch (error) {
-    if (error instanceof Error && /^(Missing AI configuration:|Unsupported AI_PROVIDER)/.test(error.message)) console.error(error.message);
+    const interrupted = clientCancelled || request.signal.aborted;
+    if (interrupted) logWarn("chat.response.interrupted", { requestId, stage: "provider", status: "interrupted", durationMs: durationMs() });
+    else logError("chat.response.failed", { requestId, durationMs: durationMs(), ...providerFailureFields(error) });
     try { await persist(clientCancelled ? "Response stopped." : "Response unavailable.", clientCancelled ? "interrupted" : "error"); }
     finally { clearTimeout(timeout); request.signal.removeEventListener("abort", onRequestAbort); }
     return NextResponse.json({ error: safeError }, { status: 502 });
@@ -170,18 +193,28 @@ async function respond(request: Request) {
         }
         if (clientCancelled || request.signal.aborted) {
           const saved = await save("interrupted");
+          logWarn("chat.response.interrupted", { requestId, status: "interrupted", durationMs: durationMs() });
           if (!clientCancelled) controller.enqueue(encoder.encode(saved ? event("status", { status: "interrupted" }) : event("error", { error: safeError })));
         } else if (completed && output.length > 0) {
-          if (await save("complete")) controller.enqueue(encoder.encode(event("status", { status: "complete" })));
-          else { await save("error"); controller.enqueue(encoder.encode(event("error", { error: safeError }))); }
+          if (await save("complete")) {
+            logInfo("chat.response.completed", { requestId, status: "complete", durationMs: durationMs() });
+            controller.enqueue(encoder.encode(event("status", { status: "complete" })));
+          } else {
+            await save("error");
+            logError("chat.response.failed", { requestId, stage: "persist", code: operationalCodes.assistantPersistFailed, status: "error", durationMs: durationMs() });
+            controller.enqueue(encoder.encode(event("error", { error: safeError })));
+          }
         } else {
           await save("error");
+          logError("chat.response.failed", { requestId, stage: "stream", code: operationalCodes.aiProviderFailed, status: "error", durationMs: durationMs() });
           controller.enqueue(encoder.encode(event("error", { error: safeError })));
         }
       } catch {
         const interrupted = clientCancelled || request.signal.aborted;
         let saved = false;
-        try { saved = await save(interrupted ? "interrupted" : "error"); } catch { console.error("assistant_state_persist_failed"); }
+        try { saved = await save(interrupted ? "interrupted" : "error"); } catch { logError("chat.persistence.failed", { requestId, code: operationalCodes.assistantPersistFailed, stage: "persist" }); }
+        if (interrupted) logWarn("chat.response.interrupted", { requestId, status: "interrupted", durationMs: durationMs() });
+        else logError("chat.response.failed", { requestId, stage: "stream", code: operationalCodes.aiProviderFailed, status: "error", durationMs: durationMs() });
         if (!interrupted) controller.enqueue(encoder.encode(event("error", { error: safeError })));
         else if (!clientCancelled) controller.enqueue(encoder.encode(saved ? event("status", { status: "interrupted" }) : event("error", { error: safeError })));
       } finally {
@@ -194,4 +227,15 @@ async function respond(request: Request) {
     cancel() { clientCancelled = true; aborter.abort(); },
   });
   return new Response(stream, { headers });
+}
+
+function providerFailureFields(error: unknown) {
+  const base = { stage: "provider", code: operationalCodes.aiProviderFailed };
+  if (!(error instanceof Error)) return { ...base, reason: "request_failed" };
+  if (error.message.startsWith("Missing AI configuration:")) {
+    const missing = error.message.slice("Missing AI configuration:".length).split(",").map((name) => name.trim()).filter((name) => /^AI_[A-Z0-9_]+$/.test(name));
+    return { ...base, reason: "missing_configuration", ...(missing.length ? { missing } : {}) };
+  }
+  if (error.message.startsWith("Unsupported AI_PROVIDER")) return { ...base, reason: "unsupported_provider" };
+  return { ...base, reason: "request_failed" };
 }
