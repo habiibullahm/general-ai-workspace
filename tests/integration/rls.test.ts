@@ -30,6 +30,7 @@ describe("Supabase row-level security", () => {
 
   beforeAll(async () => {
     await sql`drop schema if exists drizzle cascade`;
+    await sql`drop table if exists public.workbench_documents cascade`;
     await sql`drop table if exists public.room_files cascade`;
     await sql`drop function if exists public.set_room_files_updated_at() cascade`;
     await sql`drop table if exists public.pins cascade`;
@@ -136,6 +137,54 @@ describe("Supabase row-level security", () => {
     await asUser(userA, (tx) => tx`delete from public.rooms where id = ${roomA}`);
     const [kept] = await asUser(userA, (tx) => tx`select room_id, title from public.conversations where id = ${thread}`);
     expect(kept).toEqual({ room_id: null, title: "In the room" });
+  });
+
+  it("keeps workbench documents owner-scoped, allows a null room, and detaches them when a room is deleted", async () => {
+    const roomA = randomUUID();
+    const roomB = randomUUID();
+    const docGeneral = randomUUID();
+    const docRoom = randomUUID();
+    const docB = randomUUID();
+    const docEmpty = randomUUID();
+
+    await asUser(userA, (tx) => tx`insert into public.workbench_documents (id, user_id, title, content) values (${docGeneral}, ${userA}, 'Notes', 'hello')`);
+    await asUser(userA, (tx) => tx`insert into public.workbench_documents (id, user_id, title, content) values (${docEmpty}, ${userA}, 'Blank', '')`);
+    const [general] = await asUser(userA, (tx) => tx`select room_id, title, content from public.workbench_documents where id = ${docGeneral}`);
+    expect(general).toEqual({ room_id: null, title: "Notes", content: "hello" });
+    const [blank] = await asUser(userA, (tx) => tx`select content from public.workbench_documents where id = ${docEmpty}`);
+    expect(blank).toEqual({ content: "" });
+
+    await asUser(userA, (tx) => tx`insert into public.rooms (id, user_id, name) values (${roomA}, ${userA}, 'Studio')`);
+    await sql`insert into public.rooms (id, user_id, name) values (${roomB}, ${userB}, 'Private studio')`;
+    await asUser(userA, (tx) => tx`insert into public.workbench_documents (id, user_id, room_id, title, content) values (${docRoom}, ${userA}, ${roomA}, 'In room', 'body')`);
+    await expect(asUser(userA, (tx) => tx`insert into public.workbench_documents (user_id, room_id, title, content) values (${userA}, ${roomB}, 'Cross', 'no')`)).rejects.toThrow();
+    await expect(asUser(userA, (tx) => tx`update public.workbench_documents set room_id = ${roomB} where id = ${docRoom}`)).rejects.toThrow();
+    await expect(asUser(userA, (tx) => tx`insert into public.workbench_documents (user_id, title, content) values (${userB}, 'Stolen', 'no')`)).rejects.toThrow();
+    await expect(asUser(userA, (tx) => tx`update public.workbench_documents set user_id = ${userB} where id = ${docGeneral}`)).rejects.toThrow();
+
+    await sql`insert into public.workbench_documents (id, user_id, title, content) values (${docB}, ${userB}, 'Secret', 'private body')`;
+    const hidden = await asUser(userA, (tx) => tx`select id from public.workbench_documents where id = ${docB}`);
+    expect(hidden).toHaveLength(0);
+    const { updated, deleted } = await asUser(userA, async (tx) => ({
+      updated: await tx`update public.workbench_documents set title = 'hijacked', content = 'hijacked' where id = ${docB} returning id`,
+      deleted: await tx`delete from public.workbench_documents where id = ${docB} returning id`,
+    }));
+    expect(updated).toHaveLength(0);
+    expect(deleted).toHaveLength(0);
+    const [ownerDoc] = await sql`select title, content from public.workbench_documents where id = ${docB}`;
+    expect(ownerDoc).toEqual({ title: "Secret", content: "private body" });
+
+    await asUser(userA, (tx) => tx`update public.workbench_documents set title = 'Renamed', content = 'edited' where id = ${docGeneral}`);
+    const [edited] = await asUser(userA, (tx) => tx`select title, content from public.workbench_documents where id = ${docGeneral}`);
+    expect(edited).toEqual({ title: "Renamed", content: "edited" });
+
+    await asUser(userA, (tx) => tx`delete from public.rooms where id = ${roomA}`);
+    const [detached] = await asUser(userA, (tx) => tx`select room_id, title, content from public.workbench_documents where id = ${docRoom}`);
+    expect(detached).toEqual({ room_id: null, title: "In room", content: "body" });
+
+    await asUser(userA, (tx) => tx`delete from public.workbench_documents where id = ${docGeneral}`);
+    const gone = await asUser(userA, (tx) => tx`select id from public.workbench_documents where id = ${docGeneral}`);
+    expect(gone).toHaveLength(0);
   });
 
   it("keeps room files owner-scoped, including extracted text", async () => {

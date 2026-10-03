@@ -1,11 +1,12 @@
 "use client";
 
 import { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
-import { Archive, DoorOpen, MessageSquare, PanelLeftClose, Pencil, Plus, RotateCcw, Settings, SquarePen, X } from "lucide-react";
+import Link from "next/link";
+import { Archive, DoorOpen, FileText, MessageSquare, PanelLeftClose, Pencil, Plus, RotateCcw, Settings, SquarePen, X } from "lucide-react";
 import { SIGN_OUT_LABEL } from "@/lib/privacy/sign-out";
 import { AccountMenu } from "@/components/account-menu";
 import { Brand } from "@/components/brand";
-import { chatPath } from "@/lib/routes";
+import { chatPath, workbenchPath } from "@/lib/routes";
 import { groupFor, historyGroups } from "@/lib/chat/groups";
 import type { ConversationSummary, RoomSummary } from "@/lib/chat/read";
 
@@ -60,6 +61,7 @@ export const ChatSidebar = memo(function ChatSidebar({ conversations, archivedCo
   return <aside ref={mobile ? drawerRef : undefined} className={mobile ? "workspace-sidebar mobile-sidebar" : "workspace-sidebar desktop-sidebar"} aria-label={mobile ? "Conversation menu" : "Conversation history"} role={mobile ? "dialog" : undefined} aria-modal={mobile ? true : undefined}>
     <div className="sidebar-top"><Brand href={chatPath} label="Nibie home" />{mobile ? <button ref={closeMenuRef} className="icon-button" aria-label="Close menu" onClick={onClose}><X size={19} /></button> : onCollapse ? <button ref={desktopToggleRef} className="icon-button" aria-label="Collapse sidebar" title="Collapse sidebar" onClick={onCollapse}><PanelLeftClose size={18} /></button> : null}</div>
     <button className="new-chat-button" disabled={busy} onClick={onNewChat}><SquarePen size={17} /> <span>New chat</span></button>
+    <Link className="new-chat-button sidebar-workbench" href={workbenchPath}><FileText size={17} strokeWidth={2.2} /> <span>Workbench</span></Link>
     <nav className="history-nav" aria-label="Conversations">
       <section className="history-group" aria-label="Rooms">
         <h2>Rooms</h2>
