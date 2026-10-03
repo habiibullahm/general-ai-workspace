@@ -27,6 +27,26 @@ describe("OpenAI compatible SSE parsing", () => {
     }
   });
 
+  it.each(["length", "content_filter", "tool_calls", "unexpected"])("does not treat %s as successful completion", async (reason) => {
+    const source = 'data: ' + JSON.stringify({ choices: [{ delta: { content: "partial" } }] }) + '\n\ndata: ' +
+      JSON.stringify({ choices: [{ delta: {}, finish_reason: reason }] }) + '\n\ndata: [DONE]\n\n';
+    await expect(Array.fromAsync(readOpenAiSse(bodyOf(source)))).rejects.toThrow();
+  });
+
+  it("preserves a normal finish reason across split chunks and refuses premature EOF", async () => {
+    const source = 'data: {"choices":[{"delta":{"content":"complete"}}]}\n\ndata: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n';
+    const bytes = new TextEncoder().encode(source);
+    const body = new ReadableStream<Uint8Array>({ start(controller) { for (const byte of bytes) controller.enqueue(Uint8Array.of(byte)); controller.close(); } });
+    expect(await Array.fromAsync(readOpenAiSse(body))).toEqual([{ type: "delta", text: "complete" }, { type: "done", finishReason: "stop" }]);
+    await expect(Array.fromAsync(readOpenAiSse(bodyOf('data: {"choices":[{"delta":{"content":"partial"}}]}\n\n')))).rejects.toThrow("before completion");
+  });
+
+  it("completes on a stop finish reason when the gateway closes without DONE, but keeps non-stop reasons as failures", async () => {
+    const tail = (reason: string) => 'data: {"choices":[{"delta":{"content":"answer"}}]}\n\ndata: {"choices":[{"delta":{},"finish_reason":"' + reason + '"}]}\n\n';
+    expect(await Array.fromAsync(readOpenAiSse(bodyOf(tail("stop"))))).toEqual([{ type: "delta", text: "answer" }, { type: "done", finishReason: "stop" }]);
+    await expect(Array.fromAsync(readOpenAiSse(bodyOf(tail("length"))))).rejects.toThrow("output limit");
+  });
+
   it("cancels a pending provider reader on abort", async () => {
     const cancel = vi.fn();
     const aborter = new AbortController();

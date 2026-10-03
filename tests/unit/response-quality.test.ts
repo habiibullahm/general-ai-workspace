@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RESPONSE_QUALITY_POLICY, FAST_RESPONSE_POLICY, responseQualityFor } from "../../lib/ai/response-quality";
+import { RESPONSE_QUALITY_POLICY, responseQualityFor } from "../../lib/ai/response-quality";
 import { toProviderMessages } from "../../lib/ai/provider-messages";
 import { buildContext } from "../../lib/context/build-context";
 import { CONTEXT_DATA_PREAMBLE, contextPolicyFor } from "../../lib/context/context-policy";
@@ -23,7 +23,7 @@ describe.each<ChatModel>(["Fast", "Balanced", "Reasoning"])("response quality pr
     const messages = toProviderMessages(plan);
     expect(messages[0]).toEqual({ role: "system", content: contextPolicyFor(mode) });
     expect(messages[0].content.split(RESPONSE_QUALITY_POLICY)).toHaveLength(2);
-    expect(messages[0].content.includes(FAST_RESPONSE_POLICY)).toBe(mode === "Fast");
+    expect(responseQualityFor(mode)).toBe(RESPONSE_QUALITY_POLICY);
     expect(messages.at(-1)).toEqual({ role: "user", content: request });
     expect(messages.filter((message) => message.role === "system")).toHaveLength(context?.room || context?.files ? 2 : 1);
     if (context?.room) expect(messages[1].content).toContain(context.room.name);
@@ -45,22 +45,17 @@ describe("response quality rules and compatibility", () => {
     expect(toProviderMessages(buildContext(input("hello")))[0].content).toMatch(rule);
   });
 
-  it("applies a distinct Fast style without hard limits or overriding explicit requests", () => {
-    const policy = responseQualityFor("Fast");
-    expect(policy).toMatch(/30–100 words/);
-    expect(policy).toMatch(/80–180/);
-    expect(policy).toMatch(/not hard limits/);
-    expect(policy).toMatch(/Simple answers need no heading/);
-    expect(policy).toMatch(/no more than one unless requested structure requires more/);
-    expect(policy).toMatch(/table only when requested or genuinely clearer/);
-    expect(policy).toMatch(/Honor explicit requests for final copy, code, documents/);
-    expect(policy).toMatch(/Never sacrifice grounding, safety, or correctness/);
-    expect(policy).toMatch(/suggest one concrete first action/);
-    expect(policy).toMatch(/Demo invitations: if no duration is supplied, use \[duration\] or omit it; never guess/);
-    expect(policy).toMatch(/No horizontal rules unless requested/);
-    expect(policy).toMatch(/End when answered; avoid routine follow-up offers and recaps/);
-    expect(responseQualityFor("Balanced")).toBe(RESPONSE_QUALITY_POLICY);
-    expect(responseQualityFor("Reasoning")).toBe(RESPONSE_QUALITY_POLICY);
+  it("keeps requested detail independent of model and reasoning effort", () => {
+    for (const mode of ["Fast", "Balanced", "Reasoning"] as const) {
+      const policy = responseQualityFor(mode);
+      expect(policy).toBe(RESPONSE_QUALITY_POLICY);
+      expect(policy).toMatch(/shortest answer that fully satisfies the requested depth/i);
+      expect(policy).toMatch(/reasoning effort.*never.*answer length/i);
+      expect(policy).not.toMatch(/\d+[–-]\d+\s*(words)?/);
+      for (const prompt of ["apa itu Room?", "jelaskan Room secara detail, tradeoff, dan contoh", "compare dalam table", "langsung emailnya aja"]) {
+        expect(toProviderMessages(buildContext(input(prompt, mode))).at(-1)).toEqual({ role: "user", content: prompt });
+      }
+    }
   });
 
   it("treats product definitions as confirmed and missing draft details as placeholders", () => {
