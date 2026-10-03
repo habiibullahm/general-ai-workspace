@@ -178,7 +178,11 @@ a.sidebar-workbench { margin-top: 8px; color: inherit; text-decoration: none; }
 .history-context-menu button:hover:not(:disabled), .history-context-menu button:focus-visible { background: var(--hover); color: var(--text); }
 .history-context-menu button:disabled { opacity: .5; cursor: not-allowed; }
 .thread-room { display: inline-flex; align-items: center; gap: 6px; margin-left: 14px; color: var(--text-4); font-size: 12px; font-weight: 450; }
+.thread-room label { flex: none; }
 .thread-room select { max-width: 180px; height: 30px; padding: 0 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-raised); color: var(--text-2); font-size: 12px; }
+.thread-room-add { display: grid; place-items: center; flex: none; width: 30px; height: 30px; padding: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-raised); color: var(--text-2); cursor: pointer; }
+.thread-room-add:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+.thread-room-add:disabled { opacity: .55; cursor: not-allowed; }
 .conversation-scroll.is-room { padding: 28px 28px 40px; }
 .room-detail { width: min(100%, 680px); margin: 0 auto; }
 .room-detail > .welcome-eyebrow { margin-bottom: 14px; }
@@ -363,7 +367,7 @@ a.sidebar-workbench { margin-top: 8px; color: inherit; text-decoration: none; }
   .header-divider { display: none; }
   .header-new-chat { display: inline-flex; margin-left: auto; }
   .thread-room { margin-left: 8px; }
-  .thread-room span { position: static; flex: none; width: auto; height: auto; padding: 0; overflow: visible; clip: auto; color: var(--text-4); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; border: 0; }
+  .thread-room label { color: var(--text-4); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; }
   .conversation-scroll.is-room { padding: 20px 16px 28px; }
   .room-files-head, .room-file { flex-wrap: wrap; }
   .room-file .privacy-button { min-height: 36px; }
