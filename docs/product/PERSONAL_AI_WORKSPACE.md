@@ -5,7 +5,7 @@
 **Direction:** Personal AI Workspace  
 **Core principle:** Nibie is not a Claude or ChatGPT clone. It is a calm, context-aware workspace where people can think, build, write, code, research, and continue their work without repeatedly explaining themselves.
 
-> This document describes Nibie's target-state product and technical architecture. The current V1 source of truth in `docs/starter/APP_CORE.md` and `docs/starter/PRD.md` remains authoritative for implementation until a roadmap phase is explicitly activated.
+> This document describes Nibie's target-state product and technical architecture. The V1 release source of truth is [V1_RELEASE.md](./V1_RELEASE.md). The old starter documents now live under `docs/archive/starter/` and are not the implementation baseline.
 
 ---
 

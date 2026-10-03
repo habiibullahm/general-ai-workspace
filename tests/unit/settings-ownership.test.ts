@@ -36,7 +36,7 @@ describe("settings ownership", () => {
 
     const privacyEntries = sources.filter((file) => {
       const normalized = file.replaceAll("\\", "/");
-      // Public docs may name the topic. This scan is for the removed settings entry.
+      // Public docs may name the Data & privacy topic. This guard is for a second in-app settings entry.
       if (normalized.includes("/app/docs/")) return false;
       return /privacy-entry|Data & privacy/.test(readFileSync(file, "utf8"));
     });

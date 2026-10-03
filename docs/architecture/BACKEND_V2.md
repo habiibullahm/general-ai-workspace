@@ -2,7 +2,7 @@
 
 Status: architecture and scope. This document records the decision that Fastify becomes Nibie's dedicated backend. It does not implement that backend.
 
-[`docs/starter/ARCHITECTURE.md`](../starter/ARCHITECTURE.md) remains the description of production. That file locked the backend as Next.js on 2026-09-30. Production keeps that behavior until a later change explicitly amends the starter architecture. This document does not amend it.
+The archived starter note [`docs/archive/starter/ARCHITECTURE.md`](../archive/starter/ARCHITECTURE.md) locked the backend as Next.js on 2026-09-30. Production still runs that Next.js app. What V1 ships is [docs/product/V1_RELEASE.md](../product/V1_RELEASE.md). This document does not move production traffic to Fastify.
 
 The first milestone is a foundation beside the current app. It adds no production traffic, no schema change, and no move of the Next.js tree.
 
