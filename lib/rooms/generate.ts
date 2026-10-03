@@ -2,6 +2,7 @@ import "server-only";
 
 import { chatProvider } from "@/lib/ai/provider";
 import { getModelOptions } from "@/lib/ai/registry";
+import { sanitizeModelOutput } from "@/lib/ai/sanitize-model-output";
 import { readOpenAiSse } from "@/lib/ai/sse";
 import { roomBriefSchema, roomDraftSchema } from "@/lib/rooms/validation";
 import type { RoomDraft, RoomOverview } from "@/lib/rooms/types";
@@ -33,7 +34,7 @@ export async function generateRoomOverview(draft: RoomDraft): Promise<RoomOvervi
     }
     if (!complete) throw new Error("Incomplete AI draft.");
     // Some configured models put a thinking block in content before the JSON draft.
-    const json = output.trim().replace(/^<think>[\s\S]*?<\/think>\s*/i, "").replace(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/i, "$1");
+    const json = sanitizeModelOutput(output).text.trim().replace(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/i, "$1");
     const overview = overviewSchema.parse(JSON.parse(json));
     return overview;
   } finally {

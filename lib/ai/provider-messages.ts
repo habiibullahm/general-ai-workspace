@@ -1,4 +1,5 @@
 import type { ProviderMessage } from "@/lib/ai/provider";
+import { sanitizeModelOutput } from "@/lib/ai/sanitize-model-output";
 import { CONTEXT_DATA_PREAMBLE } from "@/lib/context/context-policy";
 import type { ContextPlan } from "@/lib/context/context-types";
 
@@ -17,7 +18,8 @@ export function toProviderMessages(plan: ContextPlan): ProviderMessage[] {
   for (const block of plan.blocks) {
     if (!block.included || !block.dialogueRole) continue;
     if (block.id !== "recent_messages" && block.id !== "current_request") continue;
-    messages.push({ role: block.dialogueRole, content: block.text });
+    const content = block.dialogueRole === "assistant" ? sanitizeModelOutput(block.text).text : block.text;
+    messages.push({ role: block.dialogueRole, content });
   }
   return messages;
 }

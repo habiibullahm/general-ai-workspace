@@ -2,6 +2,7 @@
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getAuthenticatedUser } from "@/lib/auth/get-user";
+import { sanitizeModelOutput } from "@/lib/ai/sanitize-model-output";
 import { canContinueInWorkbench } from "@/lib/workbench/offer";
 import { workbenchTitleFromContent } from "@/lib/workbench/title";
 import { parseWorkbenchCreate, parseWorkbenchWrite, validateWorkbenchId, workbenchCreateDefaults } from "@/lib/workbench/validation";
@@ -115,7 +116,9 @@ export async function createWorkbenchFromAssistantAction(messageId: unknown): Pr
       .maybeSingle();
     if (conversationError) return { error: saveFailed };
     if (!conversation) return { error: responseUnavailable };
-    const draft = parseWorkbenchWrite({ title: workbenchTitleFromContent(message.content), content: message.content });
+    const visible = sanitizeModelOutput(message.content).text;
+    if (!visible.trim()) return { error: responseNotReady };
+    const draft = parseWorkbenchWrite({ title: workbenchTitleFromContent(visible), content: visible });
     if ("error" in draft) return { error: draft.error };
     const { data, error } = await supabase.from("workbench_documents").insert({
       user_id: user.id,

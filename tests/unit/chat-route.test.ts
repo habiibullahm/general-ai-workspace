@@ -215,6 +215,49 @@ describe("POST /api/chat", () => {
     expect(writes).toContainEqual(expect.objectContaining({ content: "Response stopped.", status: "interrupted" }));
   });
 
+  it("persists and streams the answer without internal reasoning", async () => {
+    const writes: unknown[] = [];
+    readyClient(writes);
+    stream.mockResolvedValue(providerChunks(["<thi", "nk>private reasoning</th", "ink>\n# Proposal"]));
+    const logged = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    try {
+      const response = await POST(validRequest());
+      const body = await response.text();
+      expect(body).toContain('event: delta\ndata: {"text":"# Proposal"}');
+      expect(body).not.toContain("<think");
+      expect(body).not.toContain("private reasoning");
+      expect(writes).toContainEqual(expect.objectContaining({ content: "# Proposal", status: "complete" }));
+      expect(writes.map((write) => JSON.stringify(write)).join("\n")).not.toContain("private reasoning");
+      const filtered = logged.mock.calls.map((call) => String(call[0])).find((line) => line.includes("ai.reasoning.filtered"));
+      expect(filtered).toBeTruthy();
+      expect(filtered).not.toContain("private reasoning");
+      expect(JSON.parse(filtered!)).toMatchObject({ event: "ai.reasoning.filtered", requestId: assistantId, reasoningBlockCount: 1 });
+    } finally { logged.mockRestore(); }
+  });
+
+  it("sanitizes a retry through the same generation path", async () => {
+    const writes: unknown[] = [];
+    readyClient(writes);
+    stream.mockResolvedValue(providerChunks(["<think>private reasoning</think>\n# Proposal"]));
+    const response = await POST(validRequest());
+    const body = await response.text();
+    expect(body).not.toContain("private reasoning");
+    expect(writes).toContainEqual(expect.objectContaining({ content: "# Proposal", status: "complete" }));
+  });
+
+  it("sanitizes a regenerate through the same generation path", async () => {
+    const writes: unknown[] = [];
+    readyClient(writes);
+    stream.mockResolvedValue(providerChunks(["<think>private reasoning</think>\n# Proposal"]));
+    const request = validRequest();
+    const regenerating = new Request(request.url, { method: "POST", headers: request.headers, body: JSON.stringify({ conversationId: "5e9bdcca-9205-4fea-a773-13952bb78c44", userMessageId: "b79e56e1-b479-46f4-97d3-30b2e22be90e", regenerate: true }) });
+    const response = await POST(regenerating);
+    const body = await response.text();
+    expect(body).not.toContain("private reasoning");
+    expect(claim).toHaveBeenCalledWith("regenerate_assistant_message", expect.any(Object));
+    expect(writes).toContainEqual(expect.objectContaining({ content: "# Proposal", status: "complete" }));
+  });
+
   it("replays a saved response without invoking the provider", async () => {
     readyClient([]);
     claim.mockReturnValue(query({ data: { ...assistant, content: "Already saved", status: "complete", replayed: true }, error: null }));
@@ -516,9 +559,13 @@ function query(result: unknown, onWrite?: (write: unknown) => void) {
 }
 
 function sseBody(text: string) {
-  const encoder = new TextEncoder();
+  return providerChunks([text]);
+}
+
+function providerChunks(parts: string[]) {
   return new ReadableStream<Uint8Array>({ start(controller) {
-    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`));
-    controller.enqueue(encoder.encode("data: [DONE]\n\n")); controller.close();
+    for (const part of parts) controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: part } }] })}\n\n`));
+    controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+    controller.close();
   } });
 }

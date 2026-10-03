@@ -1,5 +1,6 @@
 import "server-only";
 
+import { sanitizeModelOutput } from "@/lib/ai/sanitize-model-output";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { schemaUnavailable } from "@/lib/chat/schema-error";
 import { validateConversationId } from "@/lib/chat/validation";
@@ -128,5 +129,10 @@ export async function getChatWorkspaceData(conversationId: unknown) {
     if (reread.error) return loadError;
     messages = reread.data ?? [];
   }
-  return { conversations, archivedConversations, rooms, messages, activeId: active.id, error: roomError };
+  return { conversations, archivedConversations, rooms, messages: messages.map(visibleMessage), activeId: active.id, error: roomError };
+}
+
+function visibleMessage<T extends { role: string; content: string }>(message: T): T {
+  if (message.role !== "assistant") return message;
+  return { ...message, content: sanitizeModelOutput(message.content).text };
 }

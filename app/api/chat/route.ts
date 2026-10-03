@@ -7,6 +7,7 @@ import { defaultReasoningEffort, reasoningAllowed, reasoningEffortSchema, resolv
 import { chatProvider } from "@/lib/ai/provider";
 import { toProviderMessages } from "@/lib/ai/provider-messages";
 import { contextCapabilitiesFor, getModelOptions } from "@/lib/ai/registry";
+import { createReasoningStreamFilter, sanitizeModelOutput } from "@/lib/ai/sanitize-model-output";
 import { readOpenAiSse } from "@/lib/ai/sse";
 import { buildContext } from "@/lib/context/build-context";
 import { CONTEXT_POLICY_VERSION } from "@/lib/context/context-policy";
@@ -112,7 +113,10 @@ async function respond(request: Request) {
     return NextResponse.json({ error: status === 409 ? "Another response is running or a newer message was saved. Refresh and try again." : safeError }, { status });
   }
   const headers = { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache, no-transform" };
-  if (assistant.replayed) return new Response(event("start", { id: assistant.id, position: assistant.position }) + event("delta", { text: assistant.content }) + event("status", { status: "complete" }) + event("done", {}), { headers });
+  if (assistant.replayed) {
+    const text = sanitizeModelOutput(assistant.content).text;
+    return new Response(event("start", { id: assistant.id, position: assistant.position }) + event("delta", { text }) + event("status", { status: "complete" }) + event("done", {}), { headers });
+  }
 
   const persist = async (content: string, status: "complete" | "interrupted" | "error") => {
     const { data, error } = await supabase.from("messages").update({ content, status }).eq("id", assistant.id).eq("status", "streaming").select("id").maybeSingle();
@@ -179,8 +183,27 @@ async function respond(request: Request) {
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      let output = ""; let completed = false;
+      const filter = createReasoningStreamFilter();
+      let output = ""; let completed = false; let sealed = false;
+      const publish = (text: string) => {
+        if (!text) return;
+        output += text;
+        if (!clientCancelled) controller.enqueue(encoder.encode(event("delta", { text })));
+      };
+      const seal = () => {
+        if (sealed) return;
+        sealed = true;
+        publish(filter.finish());
+        if (filter.reasoningBlockCount > 0) {
+          console.info(JSON.stringify({
+            event: "ai.reasoning.filtered",
+            requestId: assistant.id,
+            reasoningBlockCount: filter.reasoningBlockCount,
+          }));
+        }
+      };
       const save = async (status: "complete" | "interrupted" | "error") => {
+        seal();
         const content = output || (status === "interrupted" ? "Response stopped." : "Response unavailable.");
         return persist(content, status);
       };
@@ -189,8 +212,9 @@ async function respond(request: Request) {
         controller.enqueue(encoder.encode(event("start", { id: assistant.id, position: assistant.position, context })));
         for await (const item of readOpenAiSse(responseStream, aborter.signal)) {
           if (item.type === "done") { completed = true; break; }
-          output += item.text; controller.enqueue(encoder.encode(event("delta", { text: item.text })));
+          publish(filter.push(item.text));
         }
+        seal();
         if (clientCancelled || request.signal.aborted) {
           const saved = await save("interrupted");
           if (!clientCancelled) controller.enqueue(encoder.encode(saved ? event("status", { status: "interrupted" }) : event("error", { error: safeError })));

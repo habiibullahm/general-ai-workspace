@@ -205,4 +205,29 @@ describe("workbench documents", () => {
     await expect(createWorkbenchFromAssistantAction(messageId)).resolves.toMatchObject({ error: "Only a finished response can be opened in Workbench." });
     expect(streaming.inserts).toHaveLength(0);
   });
+
+  it("strips internal reasoning before a Workbench handoff", async () => {
+    const client = memoryClient({
+      message: {
+        id: messageId,
+        user_id: owner,
+        role: "assistant",
+        status: "complete",
+        content: "<think>\nsecret reasoning\n</think>\n\n# AI Assistant Proposal for Clinic\n\n## Confirmed Context\n\nClinic information and patient support.",
+        conversation_id: conversationId,
+      },
+      conversation: { id: conversationId, user_id: owner, room_id: roomId },
+    });
+    createClient.mockResolvedValue(client.client);
+    const created = await createWorkbenchFromAssistantAction(messageId);
+    expect(created.data).toEqual({ id: documentId });
+    expect(client.inserts[0]).toMatchObject({
+      title: "AI Assistant Proposal for Clinic",
+      room_id: roomId,
+    });
+    const content = String(client.inserts[0]?.content);
+    expect(content.startsWith("# AI Assistant Proposal for Clinic")).toBe(true);
+    expect(content).not.toContain("<think");
+    expect(content).not.toContain("secret reasoning");
+  });
 });
