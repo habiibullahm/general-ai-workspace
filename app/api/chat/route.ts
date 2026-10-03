@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getAuthenticatedUser } from "@/lib/auth/get-user";
+import { schemaUnavailable } from "@/lib/chat/schema-error";
 import { modelSchema, validateConversationId, validateMessage } from "@/lib/chat/validation";
 import { defaultReasoningEffort, reasoningAllowed, reasoningEffortSchema, resolveMode } from "@/lib/chat/models";
 import { chatProvider } from "@/lib/ai/provider";
@@ -56,13 +57,20 @@ async function respond(request: Request) {
   // The conversation, the user message and the recent context only depend on the ids in the request, so they are read together
   // (RLS hides other owners' rows from all three); the message context is trimmed to this message below.
   // Preferences are soft personalization. A failed read uses safe defaults and does not block this authenticated request.
-  const [{ data: conversation, error: conversationError }, { data: userMessage, error: messageError }, { data: recent, error: readError }, preferenceState] = await Promise.all([
+  const [{ data: loadedConversation, error: loadedConversationError }, { data: userMessage, error: messageError }, { data: recent, error: readError }, preferenceState] = await Promise.all([
     supabase.from("conversations").select("id,selected_model,room_id").eq("id", parsedId.data).maybeSingle(),
     supabase.from("messages").select("id,position,content").eq("id", parsedMessageId.data).eq("conversation_id", parsedId.data).eq("role", "user").eq("status", "complete").maybeSingle(),
     supabase.from("messages").select("role,content,status,position").eq("conversation_id", parsedId.data).eq("status", "complete").order("position", { ascending: false }).limit(34),
     loadOwnerPreferences(supabase),
   ]);
   if (preferenceState.error) console.error("preference_read_failed");
+  let conversation = loadedConversation;
+  let conversationError = loadedConversationError;
+  if (schemaUnavailable(conversationError)) {
+    const legacy = await supabase.from("conversations").select("id,selected_model").eq("id", parsedId.data).maybeSingle();
+    conversationError = legacy.error;
+    conversation = legacy.data ? { ...(legacy.data as unknown as { id: string; selected_model: string }), room_id: null } : null;
+  }
   if (conversationError) return NextResponse.json({ error: safeError }, { status: 503 });
   if (!conversation) return NextResponse.json({ error: "Conversation unavailable." }, { status: 404 });
   let room: RoomContextInput | null = null;
