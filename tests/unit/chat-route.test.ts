@@ -450,6 +450,7 @@ describe("POST /api/chat", () => {
         if (table === "conversations") return query({ data: { id: "conversation", selected_model: "Balanced", room_id: "room" }, error: null });
         if (table === "rooms") return query({ data: { name: "Lab", instructions: null }, error: null });
         if (table === "room_briefs") return query({ data: null, error: null });
+        if (table === "pins") return query({ data: [], error: null });
         if (table === "room_files") return query({ data: [{ id: fileId, original_name: "notes.txt", extracted_text: "The launch code is blue." }], error: null });
         if (table === "messages") return query(outcomes.shift()!);
         return query({ data: null, error: null });
@@ -471,6 +472,7 @@ describe("POST /api/chat", () => {
         if (table === "conversations") return query({ data: { id: "conversation", selected_model: "Balanced", room_id: "room" }, error: null });
         if (table === "rooms") return query({ data: { name: "Lab", instructions: null }, error: null });
         if (table === "room_briefs") return query({ data: null, error: null });
+        if (table === "pins") return query({ data: [], error: null });
         if (table === "room_files") return query({ data: [], error: null });
         return query({ data: { id: "user-message", position: 1, content: "hello" }, error: null });
       });

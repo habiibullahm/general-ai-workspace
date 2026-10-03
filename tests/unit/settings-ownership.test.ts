@@ -35,10 +35,10 @@ describe("settings ownership", () => {
     expect(openers[0].replaceAll("\\", "/")).toContain("components/chat-sidebar.tsx");
 
     const privacyEntries = sources.filter((file) => {
-      const text = readFileSync(file, "utf8");
-      if (text.includes("privacy-entry")) return true;
-      // The public guide uses this title. Settings must not grow a second privacy screen.
-      return /Data & privacy/.test(text) && !file.replaceAll("\\", "/").endsWith("app/docs/page.tsx");
+      const normalized = file.replaceAll("\\", "/");
+      // Public docs may name the topic. This scan is for the removed settings entry.
+      if (normalized.includes("/app/docs/")) return false;
+      return /privacy-entry|Data & privacy/.test(readFileSync(file, "utf8"));
     });
     expect(privacyEntries).toEqual([]);
 

@@ -1,4 +1,5 @@
 import type { ContextDiagnostics, ContextSourceDiagnostic } from "@/lib/context/context-types";
+import { pinPieces } from "@/lib/context/pin-context";
 import { roomPieces, roomReason, type RoomContextInput } from "@/lib/context/room-context";
 import { aboutYouLimit, preferredNameLimit, type UserPreferences } from "@/lib/preferences/types";
 import { normalizePreferenceText } from "@/lib/preferences/instructions";
@@ -73,10 +74,16 @@ export function previewContextDiagnostics(input: { preferences: UserPreferences;
     sources.splice(1, 0, roomParts.length
       ? { type: "room", label: "This room", state: "included", reason: roomReason(roomParts.flatMap((piece) => piece.categories)) }
       : { type: "room", label: "This room", state: "not_used", reason: "No room instructions or brief are set." });
+    const pins = pinPieces(input.room.pins);
+    sources.splice(2, 0, pins.length
+      ? { type: "pins", label: "Pinned context", state: "included", reason: "This room" }
+      : { type: "pins", label: "Pinned context", state: "not_used", reason: "No pins in this room." });
   }
   if (input.selectedFileCount) {
+    const pinsIndex = sources.findIndex((source) => source.type === "pins");
     const roomIndex = sources.findIndex((source) => source.type === "room");
-    sources.splice(roomIndex >= 0 ? roomIndex + 1 : 1, 0, {
+    const insertAt = pinsIndex >= 0 ? pinsIndex + 1 : roomIndex >= 0 ? roomIndex + 1 : 1;
+    sources.splice(insertAt, 0, {
       type: "file",
       label: "File context",
       state: "included",

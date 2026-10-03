@@ -14,7 +14,7 @@ import type { FileContextInput } from "@/lib/context/context-types";
 import type { RoomContextInput } from "@/lib/context/room-context";
 import { parseSelectedFileIds } from "@/lib/files/inspect";
 import { MAX_FILES_PER_MESSAGE } from "@/lib/files/limits";
-import { roomContextFromRows, type RoomBriefRow } from "@/lib/rooms/map";
+import { roomContextFromRows, type PinContextRow, type RoomBriefRow } from "@/lib/rooms/map";
 import { loadOwnerPreferences } from "@/lib/preferences/store";
 
 export const runtime = "nodejs";
@@ -75,12 +75,13 @@ async function respond(request: Request) {
   if (!conversation) return NextResponse.json({ error: "Conversation unavailable." }, { status: 404 });
   let room: RoomContextInput | null = null;
   if (conversation.room_id) {
-    const [{ data: roomRow, error: roomError }, { data: briefRow, error: briefError }] = await Promise.all([
+    const [{ data: roomRow, error: roomError }, { data: briefRow, error: briefError }, { data: pinRows, error: pinError }] = await Promise.all([
       supabase.from("rooms").select("name,instructions").eq("id", conversation.room_id).maybeSingle(),
       supabase.from("room_briefs").select("goal,current_focus,important_decisions,open_questions,next_step").eq("room_id", conversation.room_id).maybeSingle(),
+      supabase.from("pins").select("id,title,content,updated_at").eq("room_id", conversation.room_id).order("updated_at", { ascending: false }).order("id", { ascending: true }),
     ]);
-    if (roomError || briefError) return NextResponse.json({ error: safeError }, { status: 503 });
-    room = roomContextFromRows(roomRow, briefRow as RoomBriefRow | null);
+    if (roomError || briefError || pinError) return NextResponse.json({ error: safeError }, { status: 503 });
+    room = roomContextFromRows(roomRow, briefRow as RoomBriefRow | null, pinRows as PinContextRow[] | null);
   }
   let files: FileContextInput[] | undefined;
   if (selectedFiles.ids.length) {
@@ -136,6 +137,7 @@ async function respond(request: Request) {
     context = plan.diagnostics;
     const profile = plan.blocks.some((block) => block.id === "profile" && block.included);
     const roomIncluded = plan.blocks.some((block) => block.id === "room" && block.included);
+    const pinsIncluded = plan.blocks.some((block) => block.id === "pins" && block.included);
     const fileIncluded = plan.blocks.some((block) => block.id === "file" && block.included);
     const summary = plan.blocks.some((block) => block.id === "thread_summary" && block.included);
     console.info(JSON.stringify({
@@ -144,6 +146,7 @@ async function respond(request: Request) {
       "context.source.count": plan.blocks.filter((block) => block.included).length,
       "context.profile.included": profile,
       "context.room.included": roomIncluded,
+      "context.pins.included": pinsIncluded,
       "context.file.included": fileIncluded,
       "context.file.count": files?.length ?? 0,
       "context.summary.included": summary,

@@ -4,6 +4,7 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "re
 import { useRouter, useSearchParams } from "next/navigation";
 import { PanelLeftOpen, SquarePen, X } from "lucide-react";
 import { addUserMessageAction, archiveConversationAction, editLastUserMessageAction, moveConversationAction, renameConversationAction, restoreConversationAction, startConversationAction, updateConversationModelAction } from "@/app/actions/chat";
+import { createPinAction, deletePinAction, updatePinAction } from "@/app/actions/pins";
 import { createRoomAction, deleteRoomAction, updateRoomAction, updateRoomBriefAction } from "@/app/actions/rooms";
 import { BrandMark } from "@/components/brand";
 import { ChatComposer, type ComposerHandle } from "@/components/chat-composer";
@@ -22,6 +23,7 @@ import type { ChatModel } from "@/lib/chat/validation";
 import type { ModelOption } from "@/lib/chat/models";
 import { decideRestoredConversation } from "@/lib/chat/preferences";
 import { roomContextFromRows } from "@/lib/rooms/map";
+import type { PinDraft } from "@/lib/pins/types";
 import type { RoomBriefFields, RoomDraft } from "@/lib/rooms/types";
 import { chatPath, conversationPath, roomDraftPath, roomPath } from "@/lib/routes";
 import { clearStoredConversationReference } from "@/lib/privacy/local-state";
@@ -52,7 +54,7 @@ const streamFlushMs = 80;
 const previewStamp = "2026-10-01T08:30:00.000Z";
 const previewRoomId = "preview-room-nibie";
 const mockRooms: RoomSummary[] = [
-  { id: previewRoomId, name: "Nibie Development", description: "The product and the context engine.", instructions: "Keep the voice calm and specific.", created_at: previewStamp, updated_at: previewStamp, brief: { goal: "Ship Rooms", current_focus: "Room detail", important_decisions: null, open_questions: null, next_step: "Keep general threads working" } },
+  { id: previewRoomId, name: "Nibie Development", description: "The product and the context engine.", instructions: "Keep the voice calm and specific.", created_at: previewStamp, updated_at: previewStamp, brief: { goal: "Ship Rooms", current_focus: "Room detail", important_decisions: null, open_questions: null, next_step: "Keep general threads working" }, pins: [{ id: "preview-pin-deploy", room_id: previewRoomId, title: "Deployment rule", content: "Production runs on Vercel Seoul and user data stays owner-scoped through Supabase RLS.", created_at: previewStamp, updated_at: previewStamp }] },
 ];
 const mockConversations: Conversation[] = [
   { id: "preview-writing", title: "A thoughtful note to the team", selected_model: "Balanced", room_id: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), messages: [{ id: "p1", role: "user", content: "Help me write a thoughtful note to my team after a busy launch week.", position: 1, created_at: previewStamp }, { id: "p2", role: "assistant", content: "A good note can recognize the effort, name what the team accomplished, and leave room for everyone to recharge.\n\nYou might start with what you noticed most: the care people brought to the final details, the way they supported one another, or a moment that made you proud.", position: 2, created_at: previewStamp }] },
@@ -595,6 +597,7 @@ export function ChatWorkspace({ email, metadataName = null, initialData, preview
     if (!activeId || !activeConversation || activeConversation.room_id === roomId) return;
     const previous = activeConversation.room_id ?? null;
     const next = { ...activeConversation, room_id: roomId, updated_at: new Date().toISOString() };
+    setContextDiagnostics(null);
     setLocalConversations((items) => items.some((item) => item.id === activeId) ? items.map((item) => item.id === activeId ? next : item) : [next, ...items]);
     if (preview) return;
     const result = await moveConversationAction(activeId, roomId);
@@ -608,14 +611,14 @@ export function ChatWorkspace({ email, metadataName = null, initialData, preview
   const createRoom = useStableCallback(async (draft: RoomDraft, brief: RoomBriefFields) => {
     const nextBrief = { goal: brief.goal, current_focus: brief.currentFocus, important_decisions: brief.importantDecisions, open_questions: brief.openQuestions, next_step: brief.next };
     if (preview) {
-      const room: RoomSummary = { id: `preview-room-${crypto.randomUUID()}`, name: draft.name.trim(), description: draft.description?.trim() || null, instructions: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), brief: nextBrief };
+      const room: RoomSummary = { id: `preview-room-${crypto.randomUUID()}`, name: draft.name.trim(), description: draft.description?.trim() || null, instructions: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), brief: nextBrief, pins: [] };
       setRoomOverrides((items) => ({ ...items, [room.id]: room }));
       openRoom(room.id);
       return {};
     }
     const result = await createRoomAction(draft, brief);
     if (result.error || !result.data) return { error: result.error ?? "We couldn't save that change. Please try again." };
-    const room: RoomSummary = result.data;
+    const room: RoomSummary = { ...result.data, pins: [] };
     setRoomOverrides((items) => ({ ...items, [room.id]: room }));
     openRoom(room.id);
     router.refresh();
@@ -630,7 +633,7 @@ export function ChatWorkspace({ email, metadataName = null, initialData, preview
     const result = await updateRoomAction(activeRoom.id, patch);
     if (result.error || !result.data) return { error: result.error ?? "We couldn't save that change. Please try again." };
     const saved = result.data;
-    setRoomOverrides((items) => ({ ...items, [activeRoom.id]: { ...activeRoom, ...saved, brief: activeRoom.brief } }));
+    setRoomOverrides((items) => ({ ...items, [activeRoom.id]: { ...activeRoom, ...saved, brief: activeRoom.brief, pins: activeRoom.pins } }));
     router.refresh();
     return {};
   });
@@ -645,6 +648,44 @@ export function ChatWorkspace({ email, metadataName = null, initialData, preview
     if (result.error) return { error: result.error };
     setRoomOverrides((items) => ({ ...items, [activeRoom.id]: { ...activeRoom, brief: nextBrief, updated_at: new Date().toISOString() } }));
     router.refresh();
+    return {};
+  });
+  const createPin = useStableCallback(async (draft: PinDraft) => {
+    if (!activeRoom) return { error: "That room is no longer available." };
+    if (preview) {
+      const pin = { id: `preview-pin-${crypto.randomUUID()}`, room_id: activeRoom.id, title: draft.title, content: draft.content, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+      setRoomOverrides((items) => ({ ...items, [activeRoom.id]: { ...activeRoom, pins: [pin, ...activeRoom.pins] } }));
+      return {};
+    }
+    const result = await createPinAction(activeRoom.id, draft);
+    if (result.error || !result.data) return { error: result.error ?? "We couldn't save that change. Please try again." };
+    setRoomOverrides((items) => ({ ...items, [activeRoom.id]: { ...activeRoom, pins: [result.data!, ...activeRoom.pins.filter((pin) => pin.id !== result.data!.id)] } }));
+    router.refresh();
+    return {};
+  });
+  const updatePin = useStableCallback(async (id: string, draft: PinDraft) => {
+    if (!activeRoom) return { error: "That room is no longer available." };
+    if (preview) {
+      const pins = activeRoom.pins.map((pin) => pin.id === id ? { ...pin, title: draft.title, content: draft.content, updated_at: new Date().toISOString() } : pin)
+        .sort((left, right) => right.updated_at.localeCompare(left.updated_at) || left.id.localeCompare(right.id));
+      setRoomOverrides((items) => ({ ...items, [activeRoom.id]: { ...activeRoom, pins } }));
+      return {};
+    }
+    const result = await updatePinAction(id, draft);
+    if (result.error || !result.data) return { error: result.error ?? "We couldn't save that change. Please try again." };
+    const saved = result.data;
+    setRoomOverrides((items) => ({ ...items, [activeRoom.id]: { ...activeRoom, pins: [saved, ...activeRoom.pins.filter((pin) => pin.id !== saved.id)] } }));
+    router.refresh();
+    return {};
+  });
+  const removePin = useStableCallback(async (id: string) => {
+    if (!activeRoom) return { error: "That room is no longer available." };
+    if (!preview) {
+      const result = await deletePinAction(id);
+      if (result.error) return { error: result.error };
+    }
+    setRoomOverrides((items) => ({ ...items, [activeRoom.id]: { ...activeRoom, pins: activeRoom.pins.filter((pin) => pin.id !== id) } }));
+    if (!preview) router.refresh();
     return {};
   });
   const removeRoom = useStableCallback(async () => {
@@ -693,7 +734,7 @@ export function ChatWorkspace({ email, metadataName = null, initialData, preview
     }
     setFilePickerOpen((open) => !open);
   });
-  const contextRoom = threadRoom ? roomContextFromRows({ name: threadRoom.name, instructions: threadRoom.instructions }, threadRoom.brief) : null;
+  const contextRoom = threadRoom ? roomContextFromRows({ name: threadRoom.name, instructions: threadRoom.instructions }, threadRoom.brief, threadRoom.pins) : null;
   const contextPreview = previewContextDiagnostics({
     preferences: savedPreferences,
     preferenceReadFailed: Boolean(preferencesError),
@@ -708,9 +749,8 @@ export function ChatWorkspace({ email, metadataName = null, initialData, preview
 
   return <main className="chat-workspace">{desktopSidebarCollapsed ? null : <ChatSidebar {...sidebarProps} desktopToggleRef={desktopCollapseButtonRef} onCollapse={collapseDesktopSidebar} />}{drawerOpen && <div className="mobile-drawer"><button className="drawer-scrim" aria-label="Dismiss menu backdrop" onClick={closeDrawer} /><ChatSidebar {...sidebarProps} mobile drawerRef={drawerRef} closeMenuRef={closeMenuRef} /></div>}
     <section className="chat-main" aria-label="Chat workspace"><header className="chat-header">{desktopSidebarCollapsed ? <button ref={desktopExpandButtonRef} type="button" className="icon-button desktop-sidebar-toggle" aria-label="Expand sidebar" title="Expand sidebar" onClick={expandDesktopSidebar}><PanelLeftOpen size={18} /></button> : null}<button ref={menuButtonRef} className="icon-button mobile-menu-button" aria-label="Open conversation menu" onClick={() => setDrawerOpen(true)}><BrandMark /></button><div className="header-model">{!activeId || !threadRoom ? <span className={`header-context${headerRoomName ? " is-room-name" : ""}`}>{headerRoomName ?? "A little room to think"}</span> : null}</div>{activeId && rooms.length ? <label className="thread-room"><span>Room</span><select aria-label="Move thread" value={activeConversation?.room_id ?? ""} disabled={controlsDisabled} onChange={(event) => void moveThread(event.target.value || null)}><option value="">General</option>{rooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}</select></label> : null}<button type="button" className="header-new-chat" aria-label="New chat" title="New chat" disabled={controlsDisabled} onClick={newChat}><SquarePen size={17} /></button></header>
-      <div ref={scrollRef} onScroll={handleScroll} className={`conversation-scroll ${showRoom ? "is-room" : messages.length || loadingConversation ? "has-messages" : "is-empty"}`}>{showRoom && activeRoom ? <RoomDetail key={activeRoom.id} room={activeRoom} threads={roomThreads} busy={controlsDisabled} preview={preview} onOpenThread={openConversation} onNewThread={() => newThreadInRoom(activeRoom.id)} onSaveRoom={saveRoom} onSaveBrief={saveBrief} onDelete={removeRoom} /> : loadingConversation ? <div className="message-list conversation-skeleton" role="status" aria-busy="true" aria-label="Loading conversation"><div className="skeleton-line is-short" /><div className="skeleton-line" /><div className="skeleton-line" /><div className="skeleton-line is-medium" /></div> : messages.length ? <div className="message-list" aria-live="polite">{messages.map((message) => <MessageRow key={message.id} message={message} initial={initial} isLast={message.id === lastMessage?.id} isLastUser={message.id === lastUser?.id} canMutate={!preview} disabled={messageActionsLocked} editing={editingId === message.id} onRegenerate={regenerate} onStartEdit={startEdit} onCancelEdit={cancelEdit} onSaveEdit={saveEdit} />)}{notice && <p className="local-notice" role="status">{notice}</p>}</div> : <div className="welcome-panel">{notice && <p className="local-notice" role="status">{notice}</p>}<div className="welcome-icon"><BrandMark /></div><p className="welcome-eyebrow">{drafting && activeRoom ? "NEW THREAD" : "A LITTLE ROOM TO THINK"}</p><h1>{drafting && activeRoom ? activeRoom.name : "What’s on your mind?"}</h1><p className="welcome-copy">{drafting && activeRoom ? "This thread starts inside the room. Nibie will use its instructions and brief." : "A fresh page for ideas, questions, and whatever you’re working through."}</p>{drafting ? null : <div className="suggestion-list" aria-label="Suggestions">{suggestions.map((suggestion) => <button key={suggestion} onClick={() => { composerRef.current?.set(suggestion); composerRef.current?.focus(); }}>{suggestion}<span>↗</span></button>)}</div>}</div>}</div>
-      {showRoom ? null : <ChatComposer ref={composerRef} sending={sending || recovering} streaming={streaming} models={models} mode={mode} reasoningModes={reasoningModes} reasoning={reasoning} caption={caption} diagnostics={contextDiagnostics ?? contextPreview} onEditProfile={editProfile} onSubmit={submitMessage} onStop={stopStream} onModeChange={changeMode} onReasoningChange={setReasoning} onAttach={attach} attachTitle={threadRoom ? "Choose a room file" : "Add a file from a room"} attachmentPanel={filePickerOpen && threadRoom ? <RoomFilePicker roomId={threadRoom.id} selectedIds={selectedFileIds} disabled={controlsDisabled || sending || streaming} onChange={setSelectedFileIds} /> : null} />}
-    </section>
+      <div ref={scrollRef} onScroll={handleScroll} className={`conversation-scroll ${showRoom ? "is-room" : messages.length || loadingConversation ? "has-messages" : "is-empty"}`}>{showRoom && activeRoom ? <RoomDetail key={activeRoom.id} room={activeRoom} threads={roomThreads} busy={controlsDisabled} preview={preview} onOpenThread={openConversation} onNewThread={() => newThreadInRoom(activeRoom.id)} onSaveRoom={saveRoom} onSaveBrief={saveBrief} onCreatePin={createPin} onUpdatePin={updatePin} onDeletePin={removePin} onDelete={removeRoom} /> : loadingConversation ? <div className="message-list conversation-skeleton" role="status" aria-busy="true" aria-label="Loading conversation"><div className="skeleton-line is-short" /><div className="skeleton-line" /><div className="skeleton-line" /><div className="skeleton-line is-medium" /></div> : messages.length ? <div className="message-list" aria-live="polite">{messages.map((message) => <MessageRow key={message.id} message={message} initial={initial} isLast={message.id === lastMessage?.id} isLastUser={message.id === lastUser?.id} canMutate={!preview} disabled={messageActionsLocked} editing={editingId === message.id} onRegenerate={regenerate} onStartEdit={startEdit} onCancelEdit={cancelEdit} onSaveEdit={saveEdit} />)}{notice && <p className="local-notice" role="status">{notice}</p>}</div> : <div className="welcome-panel">{notice && <p className="local-notice" role="status">{notice}</p>}<div className="welcome-icon"><BrandMark /></div><p className="welcome-eyebrow">{drafting && activeRoom ? "NEW THREAD" : "A LITTLE ROOM TO THINK"}</p><h1>{drafting && activeRoom ? activeRoom.name : "What’s on your mind?"}</h1><p className="welcome-copy">{drafting && activeRoom ? "This thread starts inside the room. Nibie will use its instructions, brief, and pins." : "A fresh page for ideas, questions, and whatever you’re working through."}</p>{drafting ? null : <div className="suggestion-list" aria-label="Suggestions">{suggestions.map((suggestion) => <button key={suggestion} onClick={() => { composerRef.current?.set(suggestion); composerRef.current?.focus(); }}>{suggestion}<span>↗</span></button>)}</div>}</div>}</div>
+      {showRoom ? null : <ChatComposer ref={composerRef} sending={sending || recovering} streaming={streaming} models={models} mode={mode} reasoningModes={reasoningModes} reasoning={reasoning} caption={caption} diagnostics={contextDiagnostics ?? contextPreview} onEditProfile={editProfile} onSubmit={submitMessage} onStop={stopStream} onModeChange={changeMode} onReasoningChange={setReasoning} onAttach={attach} attachTitle={threadRoom ? "Choose a room file" : "Add a file from a room"} attachmentPanel={filePickerOpen && threadRoom ? <RoomFilePicker roomId={threadRoom.id} selectedIds={selectedFileIds} disabled={controlsDisabled || sending || streaming} onChange={setSelectedFileIds} /> : null} />}    </section>
     {renaming && <dialog ref={renameDialogRef} className="room-setup-dialog" aria-labelledby={renameTitleId} aria-busy={renameSaving} onCancel={(event) => { event.preventDefault(); if (!renameSaving) setRenaming(null); }}>
       <header className="settings-header"><h1 id={renameTitleId}>Rename conversation</h1><button type="button" className="icon-button" aria-label="Close rename dialog" disabled={renameSaving} onClick={() => setRenaming(null)}><X size={18} /></button></header>
       <form className="room-setup-form" onSubmit={(event) => { event.preventDefault(); void saveRename(); }}>

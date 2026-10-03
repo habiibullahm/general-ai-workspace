@@ -32,6 +32,8 @@ describe("Supabase row-level security", () => {
     await sql`drop schema if exists drizzle cascade`;
     await sql`drop table if exists public.room_files cascade`;
     await sql`drop function if exists public.set_room_files_updated_at() cascade`;
+    await sql`drop table if exists public.pins cascade`;
+    await sql`drop function if exists public.set_pins_updated_at() cascade`;
     await sql`drop table if exists public.room_briefs cascade`;
     await sql`drop table if exists public.rooms cascade`;
     await sql`drop function if exists public.set_rooms_updated_at() cascade`;
@@ -158,6 +160,32 @@ describe("Supabase row-level security", () => {
     expect(deleted).toHaveLength(0);
     const [ownerRow] = await sql`select extracted_text from public.room_files where id = ${fileB}`;
     expect(ownerRow.extracted_text).toBe("user b private note");
+  });
+
+  it("keeps pins owner-scoped and deletes them with the room", async () => {
+    const roomA = randomUUID();
+    const roomB = randomUUID();
+    const pinA = randomUUID();
+    const pinB = randomUUID();
+    await asUser(userA, (tx) => tx`insert into public.rooms (id, user_id, name) values (${roomA}, ${userA}, 'Nibie')`);
+    await sql`insert into public.rooms (id, user_id, name) values (${roomB}, ${userB}, 'Private room')`;
+    await asUser(userA, (tx) => tx`insert into public.pins (id, user_id, room_id, title, content) values (${pinA}, ${userA}, ${roomA}, 'Deployment rule', 'Seoul')`);
+    await sql`insert into public.pins (id, user_id, room_id, title, content) values (${pinB}, ${userB}, ${roomB}, 'Secret', 'Do not read')`;
+    const visible = await asUser(userA, (tx) => tx`select id, title from public.pins`);
+    expect(visible).toEqual([{ id: pinA, title: "Deployment rule" }]);
+    await expect(asUser(userA, (tx) => tx`insert into public.pins (user_id, room_id, title, content) values (${userB}, ${roomB}, 'Stolen', 'No')`)).rejects.toThrow();
+    await expect(asUser(userA, (tx) => tx`insert into public.pins (user_id, room_id, title, content) values (${userA}, ${roomB}, 'Attached', 'No')`)).rejects.toThrow();
+    const hiddenUpdate = await asUser(userA, (tx) => tx`update public.pins set title = 'Hijacked' where id = ${pinB} returning id`);
+    const hiddenDelete = await asUser(userA, (tx) => tx`delete from public.pins where id = ${pinB} returning id`);
+    expect(hiddenUpdate).toHaveLength(0);
+    expect(hiddenDelete).toHaveLength(0);
+    const [stillPrivate] = await sql`select title, content from public.pins where id = ${pinB}`;
+    expect(stillPrivate).toEqual({ title: "Secret", content: "Do not read" });
+    await asUser(userA, (tx) => tx`delete from public.rooms where id = ${roomA}`);
+    const removed = await sql`select id from public.pins where id = ${pinA}`;
+    const kept = await sql`select id from public.pins where id = ${pinB}`;
+    expect(removed).toHaveLength(0);
+    expect(kept).toEqual([{ id: pinB }]);
   });
 
   it("allows users to read only their own profile row", async () => {

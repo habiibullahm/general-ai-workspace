@@ -1,10 +1,11 @@
 import { CONTEXT_POLICY_TEXT, CONTEXT_POLICY_VERSION } from "@/lib/context/context-policy";
 import { ContextBuildError, type BuildContextInput, type ContextBlock, type ContextDiagnostics, type ContextPlan, type ContextSourceDiagnostic, type ThreadMessage } from "@/lib/context/context-types";
 import { renderFileContext } from "@/lib/context/file-context";
+import { pinPieces, type PinPiece } from "@/lib/context/pin-context";
 import { profilePieces, profileReason, type ProfilePiece } from "@/lib/context/profile-context";
 import { roomPieces, roomReason, type RoomPiece } from "@/lib/context/room-context";
 import { renderThreadSummary, resolveThreadSummary, selectThreadMessages } from "@/lib/context/thread-context";
-import { budgetLimits, estimateTokens, FILE_TOKEN_CAP, PROTECTED_RECENT_COUNT, ROOM_TOKEN_CAP, SUMMARY_TOKEN_CAP } from "@/lib/context/token-budget";
+import { budgetLimits, estimateTokens, FILE_TOKEN_CAP, PIN_TOKEN_CAP, PROTECTED_RECENT_COUNT, ROOM_TOKEN_CAP, SUMMARY_TOKEN_CAP } from "@/lib/context/token-budget";
 
 function block(partial: ContextBlock): ContextBlock {
   return partial;
@@ -68,7 +69,21 @@ export function buildContext(input: BuildContextInput): ContextPlan {
     } else droppedRoom.push(piece);
   }
 
-  // Pins, when a later branch adds them, belong between the room block and this file block.
+  // Newest updated pin first. A pin that does not fit is skipped whole; later pins may still fit.
+  const pinCandidates = hasRoom ? pinPieces(input.room?.pins) : [];
+  const includedPins: PinPiece[] = [];
+  const droppedPins: PinPiece[] = [];
+  let pinAllowance = Math.min(PIN_TOKEN_CAP, remaining.value);
+  for (const piece of pinCandidates) {
+    const tokens = estimateTokens(piece.text);
+    if (tokens <= pinAllowance) {
+      includedPins.push(piece);
+      pinAllowance -= tokens;
+      remaining.value -= tokens;
+    } else droppedPins.push(piece);
+  }
+
+  // Explicitly selected files only. They sit after pins and never become a search over the room.
   const requestedFiles = input.files?.length ? input.files : null;
   const renderedFiles = requestedFiles ? renderFileContext(requestedFiles, Math.min(FILE_TOKEN_CAP, remaining.value)) : null;
   if (renderedFiles?.text) remaining.value -= estimateTokens(renderedFiles.text);
@@ -89,10 +104,11 @@ export function buildContext(input: BuildContextInput): ContextPlan {
   const olderFit = summaryIncluded ? { included: [] as ThreadMessage[], dropped: olderMessages } : takeNewest(olderMessages, remaining);
   const dialogue = [...olderFit.included, ...protectedFit.included, current];
   const droppedMessages = summaryIncluded ? protectedFit.dropped : [...olderFit.dropped, ...protectedFit.dropped];
-  const truncated = droppedMessages.length > 0 || droppedPieces.length > 0 || droppedRoom.length > 0 || Boolean(renderedFiles?.truncated) || summaryDroppedForBudget;
+  const truncated = droppedMessages.length > 0 || droppedPieces.length > 0 || droppedRoom.length > 0 || droppedPins.length > 0 || Boolean(renderedFiles?.truncated) || summaryDroppedForBudget;
 
   const profileText = includedPieces.map((piece) => piece.text).join("\n");
   const roomText = includedRoom.map((piece) => piece.text).join("\n\n");
+  const pinText = includedPins.map((piece) => piece.text).join("\n\n");
   const fileText = renderedFiles?.text ?? "";
   const blocks: ContextBlock[] = [
     block({ id: "core", authority: "policy", priority: 1, required: true, text: CONTEXT_POLICY_TEXT, tokenEstimate: coreTokens, included: true, exclusionReason: null }),
@@ -100,6 +116,7 @@ export function buildContext(input: BuildContextInput): ContextPlan {
   ];
   if (hasRoom) {
     blocks.push(block({ id: "room", authority: "untrusted_data", priority: 5, required: false, text: roomText, tokenEstimate: roomText ? estimateTokens(roomText) : 0, included: Boolean(roomText), exclusionReason: roomText ? null : droppedRoom.length ? "budget" : "not_needed" }));
+    blocks.push(block({ id: "pins", authority: "untrusted_data", priority: 5, required: false, text: pinText, tokenEstimate: pinText ? estimateTokens(pinText) : 0, included: Boolean(pinText), exclusionReason: pinText ? null : droppedPins.length ? "budget" : "not_needed" }));
   }
   if (requestedFiles) {
     blocks.push(block({ id: "file", authority: "untrusted_data", priority: 6, required: false, text: fileText, tokenEstimate: fileText ? estimateTokens(fileText) : 0, included: Boolean(fileText), exclusionReason: fileText ? null : "budget" }));
@@ -135,6 +152,11 @@ export function buildContext(input: BuildContextInput): ContextPlan {
       ? { type: "room", label: "This room", state: "included", reason: roomReason(includedRoom.flatMap((piece) => piece.categories)) }
       : { type: "room", label: "This room", state: "not_used", reason: droppedRoom.length ? "Not used for this reply." : "No room instructions or brief are set." }
     : null;
+  const pinsDiagnostic: ContextSourceDiagnostic | null = hasRoom
+    ? pinText
+      ? { type: "pins", label: "Pinned context", state: "included", reason: "This room" }
+      : { type: "pins", label: "Pinned context", state: "not_used", reason: droppedPins.length ? "Not used for this reply." : "No pins in this room." }
+    : null;
   const fileDiagnostic: ContextSourceDiagnostic | null = requestedFiles
     ? fileText
       ? { type: "file", label: "File context", state: "included", reason: requestedFiles.length === 1 ? "Selected room file" : "Selected room files" }
@@ -145,9 +167,12 @@ export function buildContext(input: BuildContextInput): ContextPlan {
   try {
     const sources = [profileDiagnostic, recentDiagnostic, summaryDiagnostic];
     if (roomDiagnostic) sources.splice(1, 0, roomDiagnostic);
+    if (pinsDiagnostic) sources.splice(roomDiagnostic ? 2 : 1, 0, pinsDiagnostic);
     if (fileDiagnostic) {
+      const pinsIndex = sources.findIndex((source) => source.type === "pins");
       const roomIndex = sources.findIndex((source) => source.type === "room");
-      sources.splice(roomIndex >= 0 ? roomIndex + 1 : 1, 0, fileDiagnostic);
+      const insertAt = pinsIndex >= 0 ? pinsIndex + 1 : roomIndex >= 0 ? roomIndex + 1 : 1;
+      sources.splice(insertAt, 0, fileDiagnostic);
     }
     diagnostics = { sources, recentMessageCount: dialogue.length };
   } catch {

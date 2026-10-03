@@ -77,6 +77,31 @@ export const roomBriefs = pgTable(
   ],
 );
 
+// A pin is one user-owned fact kept on purpose inside a room. Deleting the room deletes its pins.
+export const pins = pgTable(
+  "pins",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    roomId: uuid("room_id").notNull(),
+    title: text("title").notNull(),
+    content: text("content").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("pins_id_user_id_key").on(table.id, table.userId),
+    index("pins_room_updated_idx").on(table.roomId, table.updatedAt, table.id),
+    foreignKey({
+      name: "pins_room_owner_fk",
+      columns: [table.roomId, table.userId],
+      foreignColumns: [rooms.id, rooms.userId],
+    }).onDelete("cascade"),
+    check("pins_title_length", sql`char_length(${table.title}) between 1 and 80 and ${table.title} = btrim(${table.title})`),
+    check("pins_content_length", sql`char_length(${table.content}) between 1 and 1000 and ${table.content} = btrim(${table.content})`),
+  ],
+);
+
 // Explicit room source material. Extracted text is untrusted data, never an authorization input.
 export const roomFiles = pgTable(
   "room_files",
