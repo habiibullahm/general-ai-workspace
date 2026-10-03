@@ -8,6 +8,7 @@ const allModes = { models: ["Fast", "Balanced", "Reasoning"].map((id) => ({ id, 
 
 import { POST } from "../../app/api/chat/route";
 import { CONTEXT_DATA_PREAMBLE, CONTEXT_POLICY_TEXT } from "../../lib/context/context-policy";
+import { readChatSse } from "../../lib/ai/sse";
 
 let preferenceResult: { data: unknown; error: unknown } = { data: null, error: null };
 const assistantId = "e3b624e6-d792-47a8-8ff2-46724452c1ca";
@@ -403,6 +404,53 @@ describe("POST /api/chat", () => {
       expect((await post({ model: "Balanced", reasoning: "auto" })).status).toBe(200);
       expect(stream.mock.calls[0][3]).toEqual({ reasoning: "auto" });
     });
+  });
+
+  it.each([
+    { pins: false, file: false, regenerate: false },
+    { pins: true, file: false, regenerate: false },
+    { pins: false, file: true, regenerate: false },
+    { pins: true, file: true, regenerate: false },
+    { pins: false, file: false, regenerate: true },
+    { pins: true, file: false, regenerate: true },
+    { pins: false, file: true, regenerate: true },
+    { pins: true, file: true, regenerate: true },
+  ])("emits room diagnostics accepted by the chat parser: %j", async ({ pins, file, regenerate }) => {
+    const fileId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const writes: unknown[] = [];
+    const outcomes = [
+      { data: { id: "user-message", position: 1, content: "hello" }, error: null },
+      { data: [{ role: "user", content: "hello", status: "complete", position: 1 }], error: null },
+      { data: { id: assistantId }, error: null },
+    ];
+    const from = vi.fn((table: string) => {
+      if (table === "user_preferences") return query(preferenceResult);
+      if (table === "conversations") return query({ data: { id: "conversation", selected_model: "Balanced", room_id: "room" }, error: null });
+      if (table === "rooms") return query({ data: { name: "Clinic", instructions: "Plan a clinic assistant." }, error: null });
+      if (table === "room_briefs") return query({ data: null, error: null });
+      if (table === "pins") return query({ data: pins ? [{ id: "pin", title: "Scope", content: "Scheduling", updated_at: "2026-10-03T00:00:00.000Z" }] : [], error: null });
+      if (table === "room_files") return query({ data: [{ id: fileId, original_name: "notes.txt", extracted_text: "A scheduling prototype." }], error: null });
+      return query(outcomes.shift(), (write) => writes.push(write));
+    });
+    createClient.mockResolvedValue({ auth: { getClaims: async () => ({ data: { claims: { sub: "owner" } }, error: null }) }, from, rpc: claim });
+    stream.mockResolvedValue(providerChunks(["<think>Private reasoning</think>", "Hello"]));
+    const request = validRequest();
+    const response = await POST(new Request(request.url, { method: "POST", headers: request.headers, body: JSON.stringify({
+      ...await request.json(), regenerate, ...(file ? { fileIds: [fileId] } : {}),
+    }) }));
+    expect(response.status).toBe(200);
+    expect(response.body).not.toBeNull();
+    const events = await Array.fromAsync(readChatSse(response.body!));
+    expect(events[0]).toMatchObject({ type: "start", id: assistantId, context: { sources: expect.arrayContaining([
+      { type: "room", label: "This room", state: "included", reason: expect.any(String) },
+      { type: "pins", label: "Pinned context", state: pins ? "included" : "not_used", reason: expect.any(String) },
+    ]) } });
+    if (file) expect(events[0]).toMatchObject({ context: { sources: expect.arrayContaining([{ type: "file", label: "File context", state: "included", reason: "Selected room file" }]) } });
+    expect(events.filter((event) => event.type === "delta")).toEqual([{ type: "delta", text: "Hello" }]);
+    expect(events.slice(-2)).toEqual([{ type: "status", status: "complete" }, { type: "done" }]);
+    expect(writes).toContainEqual({ content: "Hello", status: "complete" });
+    expect(claim).toHaveBeenCalledWith(regenerate ? "regenerate_assistant_message" : "claim_assistant_message", expect.any(Object));
+    expect(JSON.stringify(events)).not.toContain("Private reasoning");
   });
 
   describe("account preferences in the provider context", () => {

@@ -34,24 +34,24 @@ export async function* readOpenAiSse(body: ReadableStream<Uint8Array>, signal?: 
   }
 }
 
-const contextDiagnosticSchema = z.object({
-  type: z.enum(["profile", "room", "thread_summary", "recent_messages"]),
-  label: z.enum(["Your profile", "This room", "Thread summary", "Recent conversation"]),
+const contextDiagnosticSchema = z.strictObject({
+  type: z.enum(["profile", "room", "pins", "file", "thread_summary", "recent_messages"]),
+  label: z.enum(["Your profile", "This room", "Pinned context", "File context", "Thread summary", "Recent conversation"]),
   state: z.enum(["included", "not_used"]),
   reason: z.string(),
 });
 
 const chatEventSchema = z.discriminatedUnion("type", [
-  z.object({
+  z.strictObject({
     type: z.literal("start"),
     id: z.string().uuid(),
     position: z.number().int().positive(),
-    context: z.object({ sources: z.array(contextDiagnosticSchema), recentMessageCount: z.number().int().nonnegative() }).optional(),
+    context: z.strictObject({ sources: z.array(contextDiagnosticSchema), recentMessageCount: z.number().int().nonnegative() }).optional(),
   }),
-  z.object({ type: z.literal("delta"), text: z.string() }),
-  z.object({ type: z.literal("status"), status: z.enum(["complete", "interrupted"]) }),
-  z.object({ type: z.literal("error"), error: z.string() }),
-  z.object({ type: z.literal("done") }),
+  z.strictObject({ type: z.literal("delta"), text: z.string() }),
+  z.strictObject({ type: z.literal("status"), status: z.enum(["complete", "interrupted"]) }),
+  z.strictObject({ type: z.literal("error"), error: z.string() }),
+  z.strictObject({ type: z.literal("done") }),
 ]);
 export type ChatStreamEvent = z.infer<typeof chatEventSchema>;
 
