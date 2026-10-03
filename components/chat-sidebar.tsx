@@ -2,7 +2,7 @@
 
 import { memo, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type DragEvent, type RefObject } from "react";
 import Link from "next/link";
-import { Archive, ChevronDown, ChevronRight, DoorOpen, FileText, MessageSquare, MoreHorizontal, PanelLeftClose, Pencil, Plus, RotateCcw, Search, Settings, SquarePen, X } from "lucide-react";
+import { Archive, ChevronDown, ChevronRight, DoorOpen, FileText, MessageSquare, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCcw, Search, Settings, SquarePen, X } from "lucide-react";
 import { SIGN_OUT_LABEL } from "@/lib/privacy/sign-out";
 import { AccountMenu } from "@/components/account-menu";
 import { Brand, type BrandActivity } from "@/components/brand";
@@ -98,6 +98,9 @@ export const ChatSidebar = memo(function ChatSidebar({ conversations, archivedCo
   const [contextMenu, setContextMenu] = useState<{ item: ConversationSummary; x: number; y: number } | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const contextTriggerRef = useRef<HTMLDivElement>(null);
+  const historyNavRef = useRef<HTMLElement>(null);
+  const roomsSectionRef = useRef<HTMLElement>(null);
+  const generalSectionRef = useRef<HTMLElement>(null);
   useEffect(() => {
     if (!moveItem) return;
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
