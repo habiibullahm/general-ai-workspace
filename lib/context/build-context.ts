@@ -1,4 +1,4 @@
-import { CONTEXT_POLICY_TEXT, CONTEXT_POLICY_VERSION } from "@/lib/context/context-policy";
+import { contextPolicyFor, CONTEXT_POLICY_VERSION } from "@/lib/context/context-policy";
 import { ContextBuildError, type BuildContextInput, type ContextBlock, type ContextDiagnostics, type ContextPlan, type ContextSourceDiagnostic, type ThreadMessage } from "@/lib/context/context-types";
 import { renderFileContext } from "@/lib/context/file-context";
 import { pinPieces, type PinPiece } from "@/lib/context/pin-context";
@@ -39,7 +39,8 @@ export function buildContext(input: BuildContextInput): ContextPlan {
   const olderMessages = earlier.slice(0, earlier.length - protectedMessages.length);
   const resolved = resolveThreadSummary(input.summary, input.currentPosition);
   const pieces = profilePieces(input.preferences);
-  const coreTokens = estimateTokens(CONTEXT_POLICY_TEXT);
+  const corePolicyText = contextPolicyFor(input.responseMode);
+  const coreTokens = estimateTokens(corePolicyText);
   const currentTokens = estimateTokens(current.content);
   if (coreTokens + currentTokens > inputBudgetTokens) throw new ContextBuildError();
 
@@ -111,7 +112,7 @@ export function buildContext(input: BuildContextInput): ContextPlan {
   const pinText = includedPins.map((piece) => piece.text).join("\n\n");
   const fileText = renderedFiles?.text ?? "";
   const blocks: ContextBlock[] = [
-    block({ id: "core", authority: "policy", priority: 1, required: true, text: CONTEXT_POLICY_TEXT, tokenEstimate: coreTokens, included: true, exclusionReason: null }),
+    block({ id: "core", authority: "policy", priority: 1, required: true, text: corePolicyText, tokenEstimate: coreTokens, included: true, exclusionReason: null }),
     block({ id: "profile", authority: "untrusted_data", priority: 4, required: false, text: profileText, tokenEstimate: profileText ? estimateTokens(profileText) : 0, included: Boolean(profileText), exclusionReason: profileText ? null : input.preferenceReadFailed ? "read_failed" : droppedPieces.length && !includedPieces.length ? "budget" : "defaults_only" }),
   ];
   if (hasRoom) {
