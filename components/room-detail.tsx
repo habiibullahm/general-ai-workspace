@@ -2,6 +2,7 @@
 
 import { useState, useSyncExternalStore } from "react";
 import { Plus } from "lucide-react";
+import { RoomFiles } from "@/components/room-files";
 import type { ConversationSummary, PinSummary, RoomSummary } from "@/lib/chat/read";
 import type { PinDraft } from "@/lib/pins/types";
 import { roomBriefFields, type RoomBriefFields } from "@/lib/rooms/types";
@@ -21,6 +22,7 @@ type Props = {
   onUpdatePin: (id: string, draft: PinDraft) => Promise<SaveResult>;
   onDeletePin: (id: string) => Promise<SaveResult>;
   onDelete: () => Promise<SaveResult>;
+  preview?: boolean;
 };
 
 function pinPreview(content: string) {
@@ -39,7 +41,7 @@ function briefFromRoom(room: RoomSummary): RoomBriefFields {
   };
 }
 
-export function RoomDetail({ room, threads, busy, onOpenThread, onNewThread, onSaveRoom, onSaveBrief, onCreatePin, onUpdatePin, onDeletePin, onDelete }: Props) {
+export function RoomDetail({ room, threads, busy, onOpenThread, onNewThread, onSaveRoom, onSaveBrief, onCreatePin, onUpdatePin, onDeletePin, onDelete, preview = false }: Props) {
   const mounted = useSyncExternalStore(noopSubscribe, () => true, () => false);
   const [name, setName] = useState(room.name);
   const [description, setDescription] = useState(room.description ?? "");
@@ -154,6 +156,7 @@ export function RoomDetail({ room, threads, busy, onOpenThread, onNewThread, onS
       {roomBriefFields.map((field) => <label className="room-field" key={field.key}><span>{field.label}</span><textarea value={brief[field.key] ?? ""} maxLength={500} rows={3} disabled={locked} onChange={(event) => setBrief((current) => ({ ...current, [field.key]: event.target.value }))} /></label>)}
       <button type="button" className="privacy-button" disabled={locked} onClick={() => void saveBrief()}>{saving === "brief" ? "Saving…" : "Save brief"}</button>
     </section>
+    <RoomFiles roomId={room.id} disabled={locked} preview={preview} />
     <section className="room-pins" aria-label="Pins">
       <div className="room-threads-head"><h2>Pins</h2><button type="button" className="privacy-button" disabled={locked || addingPin} onClick={startAddPin}><Plus size={15} aria-hidden="true" /> Add pin</button></div>
       <p>A few facts you want Nibie to keep in this room.</p>

@@ -30,6 +30,8 @@ describe("Supabase row-level security", () => {
 
   beforeAll(async () => {
     await sql`drop schema if exists drizzle cascade`;
+    await sql`drop table if exists public.room_files cascade`;
+    await sql`drop function if exists public.set_room_files_updated_at() cascade`;
     await sql`drop table if exists public.pins cascade`;
     await sql`drop function if exists public.set_pins_updated_at() cascade`;
     await sql`drop table if exists public.room_briefs cascade`;
@@ -134,6 +136,30 @@ describe("Supabase row-level security", () => {
     await asUser(userA, (tx) => tx`delete from public.rooms where id = ${roomA}`);
     const [kept] = await asUser(userA, (tx) => tx`select room_id, title from public.conversations where id = ${thread}`);
     expect(kept).toEqual({ room_id: null, title: "In the room" });
+  });
+
+  it("keeps room files owner-scoped, including extracted text", async () => {
+    const roomA = randomUUID();
+    const roomB = randomUUID();
+    const fileB = randomUUID();
+    const pathB = `${userB}/${roomB}/${fileB}/${fileB}.txt`;
+    const fileA = randomUUID();
+    const pathA = `${userA}/${roomA}/${fileA}/${fileA}.txt`;
+    const crossId = randomUUID();
+    const crossPath = `${userA}/${roomB}/${crossId}/${crossId}.txt`;
+    await asUser(userA, (tx) => tx`insert into public.rooms (id, user_id, name) values (${roomA}, ${userA}, 'Files')`);
+    await sql`insert into public.rooms (id, user_id, name) values (${roomB}, ${userB}, 'Private files')`;
+    await sql`insert into public.room_files (id, user_id, room_id, original_name, mime_type, size_bytes, storage_path, extracted_text) values (${fileB}, ${userB}, ${roomB}, 'secret.txt', 'text/plain', 12, ${pathB}, 'user b private note')`;
+    await asUser(userA, (tx) => tx`insert into public.room_files (id, user_id, room_id, original_name, mime_type, size_bytes, storage_path, extracted_text) values (${fileA}, ${userA}, ${roomA}, 'notes.txt', 'text/plain', 5, ${pathA}, 'hello from a')`);
+    const visible = await asUser(userA, (tx) => tx`select id, extracted_text from public.room_files`);
+    expect(visible).toEqual([{ id: fileA, extracted_text: "hello from a" }]);
+    await expect(asUser(userA, (tx) => tx`insert into public.room_files (user_id, room_id, original_name, mime_type, size_bytes, storage_path, extracted_text) values (${userB}, ${roomB}, 'stolen.txt', 'text/plain', 4, ${`${userB}/${roomB}/${randomUUID()}/x.txt`}, 'nope')`)).rejects.toThrow();
+    await expect(asUser(userA, (tx) => tx`insert into public.room_files (id, user_id, room_id, original_name, mime_type, size_bytes, storage_path, extracted_text) values (${crossId}, ${userA}, ${roomB}, 'cross.txt', 'text/plain', 4, ${crossPath}, 'nope')`)).rejects.toThrow();
+    await expect(asUser(userA, (tx) => tx`update public.room_files set extracted_text = 'hijacked' where id = ${fileB} returning id`)).rejects.toThrow();
+    const deleted = await asUser(userA, (tx) => tx`delete from public.room_files where id = ${fileB} returning id`);
+    expect(deleted).toHaveLength(0);
+    const [ownerRow] = await sql`select extracted_text from public.room_files where id = ${fileB}`;
+    expect(ownerRow.extracted_text).toBe("user b private note");
   });
 
   it("keeps pins owner-scoped and deletes them with the room", async () => {

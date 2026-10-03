@@ -60,7 +60,7 @@ export function profileReason(categories: ProfileCategory[]) {
 
 const summaryUnused: ContextSourceDiagnostic = { type: "thread_summary", label: "Thread summary", state: "not_used", reason: "Not needed yet." };
 
-export function previewContextDiagnostics(input: { preferences: UserPreferences; preferenceReadFailed: boolean; hasEarlierMessages: boolean; room?: RoomContextInput | null }): ContextDiagnostics {
+export function previewContextDiagnostics(input: { preferences: UserPreferences; preferenceReadFailed: boolean; hasEarlierMessages: boolean; room?: RoomContextInput | null; selectedFileCount?: number }): ContextDiagnostics {
   const pieces = input.preferenceReadFailed ? [] : profilePieces(input.preferences);
   const profile: ContextSourceDiagnostic = pieces.length
     ? { type: "profile", label: "Your profile", state: "included", reason: profileReason(pieces.flatMap((piece) => piece.categories)) }
@@ -78,6 +78,17 @@ export function previewContextDiagnostics(input: { preferences: UserPreferences;
     sources.splice(2, 0, pins.length
       ? { type: "pins", label: "Pinned context", state: "included", reason: "This room" }
       : { type: "pins", label: "Pinned context", state: "not_used", reason: "No pins in this room." });
+  }
+  if (input.selectedFileCount) {
+    const pinsIndex = sources.findIndex((source) => source.type === "pins");
+    const roomIndex = sources.findIndex((source) => source.type === "room");
+    const insertAt = pinsIndex >= 0 ? pinsIndex + 1 : roomIndex >= 0 ? roomIndex + 1 : 1;
+    sources.splice(insertAt, 0, {
+      type: "file",
+      label: "File context",
+      state: "included",
+      reason: input.selectedFileCount === 1 ? "Selected room file" : "Selected room files",
+    });
   }
   return { sources, recentMessageCount: input.hasEarlierMessages ? 1 : 0 };
 }
