@@ -117,6 +117,13 @@ button:focus-visible, a:focus-visible, select:focus-visible, textarea:focus-visi
 .brand-mark { display: grid; place-items: center; flex: none; width: 27px; height: 27px; color: var(--mark-fg); background: var(--mark-bg); border-radius: 9px; font-family: Georgia, serif; font-size: 19px; font-weight: 400; letter-spacing: -.08em; padding-right: 2px; line-height: 1; }
 .brand-mark img, .brand-mark svg { display: block; width: 100%; height: 100%; }
 .brand-mark.has-asset { background: transparent; padding: 0; border-radius: 0; }
+.brand-mark[data-activity="thinking"] { animation: brand-thinking 1.6s ease-in-out infinite; transform-origin: center; }
+.brand-mark[data-activity="streaming"] { animation: brand-streaming 1.4s ease-in-out infinite; transform-origin: center; }
+@keyframes brand-thinking { 0%, 100% { opacity: .85; transform: scale(1); } 50% { opacity: 1; transform: scale(1.04); } }
+@keyframes brand-streaming { 0%, 100% { opacity: .92; transform: scale(1); } 50% { opacity: 1; transform: scale(1.02); } }
+@media (prefers-reduced-motion: reduce) {
+  .brand-mark[data-activity="thinking"], .brand-mark[data-activity="streaming"] { animation: none !important; opacity: .92; transform: scale(1.02); }
+}
 .brand-lockup.is-large { font-size: 24px; gap: 11px; }
 .brand-lockup.is-large .brand-mark { width: 34px; height: 34px; font-size: 24px; border-radius: 11px; }
 .icon-button { display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 9px; color: var(--text-3); background: transparent; cursor: pointer; }

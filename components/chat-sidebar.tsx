@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Archive, ChevronDown, ChevronRight, DoorOpen, FileText, MessageSquare, MoreHorizontal, PanelLeftClose, Pencil, Plus, RotateCcw, Search, Settings, SquarePen, X } from "lucide-react";
 import { SIGN_OUT_LABEL } from "@/lib/privacy/sign-out";
 import { AccountMenu } from "@/components/account-menu";
-import { Brand } from "@/components/brand";
+import { Brand, type BrandActivity } from "@/components/brand";
 import { chatPath, workbenchPath } from "@/lib/routes";
 import { groupFor, groupThreads, historyGroups, requestTime } from "@/lib/chat/groups";
 import type { ConversationSummary, RoomSummary } from "@/lib/chat/read";
@@ -19,6 +19,7 @@ type Props = {
   activeId: string | null;
   activeRoomId: string | null;
   busy: boolean;
+  activity: BrandActivity;
   preview: boolean;
   email: string;
   name: string;
@@ -74,7 +75,7 @@ function ConversationSearchDialog({ conversations, archivedConversations, onOpen
 }
 
 // Memoized: streaming tokens and typing never re-render the history list.
-export const ChatSidebar = memo(function ChatSidebar({ conversations, archivedConversations, rooms, activeId, activeRoomId, busy, preview, email, name, renderedAt, mobile = false, drawerRef, closeMenuRef, desktopToggleRef, desktopExpandRef, collapsed = false, settingsActive = false, onCollapse, onExpand, onClose, onOpen, onOpenRoom, onCreateRoom, onNewChat, onOpenSettings, onRename, onArchive, onRestore, onMove }: Props) {
+export const ChatSidebar = memo(function ChatSidebar({ conversations, archivedConversations, rooms, activeId, activeRoomId, busy, activity, preview, email, name, renderedAt, mobile = false, drawerRef, closeMenuRef, desktopToggleRef, desktopExpandRef, collapsed = false, settingsActive = false, onCollapse, onExpand, onClose, onOpen, onOpenRoom, onCreateRoom, onNewChat, onOpenSettings, onRename, onArchive, onRestore, onMove }: Props) {
   // Server render and hydration group by the UTC calendar from the server's clock so both agree; once mounted, the viewer's own clock and
   // time zone are used (the grouping is recomputed whenever the list changes).
   const mounted = useSyncExternalStore(noopSubscribe, () => true, () => false);
@@ -144,7 +145,7 @@ export const ChatSidebar = memo(function ChatSidebar({ conversations, archivedCo
     </div>;
   }
   return <aside ref={mobile ? drawerRef : undefined} className={"workspace-sidebar" + (mobile ? " mobile-sidebar" : " desktop-sidebar" + (collapsed ? " is-collapsed" : ""))} aria-label={mobile ? "Conversation menu" : "Conversation history"} role={mobile ? "dialog" : undefined} aria-modal={mobile ? true : undefined}>
-    <div className="sidebar-top">{collapsed && !mobile ? <Brand variant="mark" href={chatPath} label="Nibie home" /> : <Brand href={chatPath} label="Nibie home" />}{mobile ? <button ref={closeMenuRef} className="icon-button" aria-label="Close menu" onClick={onClose}><X size={19} /></button> : collapsed ? <button ref={desktopExpandRef} type="button" className="icon-button" aria-label="Expand sidebar" title="Expand sidebar" aria-expanded="false" onClick={onExpand}><PanelLeftOpen size={18} /></button> : <div className="sidebar-controls"><button type="button" className="icon-button" aria-label="Search conversations" title="Search conversations" aria-haspopup="dialog" aria-expanded={searchOpen} onClick={() => setSearchOpen(true)}><Search size={18} aria-hidden="true" /></button>{onCollapse ? <button ref={desktopToggleRef} type="button" className="icon-button" aria-label="Collapse sidebar" title="Collapse sidebar" aria-expanded="true" onClick={onCollapse}><PanelLeftClose size={18} /></button> : null}</div>}</div>
+    <div className="sidebar-top">{collapsed && !mobile ? <Brand variant="mark" href={chatPath} label="Nibie home" activity={activity} /> : <Brand href={chatPath} label="Nibie home" activity={activity} />}{mobile ? <button ref={closeMenuRef} className="icon-button" aria-label="Close menu" onClick={onClose}><X size={19} /></button> : collapsed ? <button ref={desktopExpandRef} type="button" className="icon-button" aria-label="Expand sidebar" title="Expand sidebar" aria-expanded="false" onClick={onExpand}><PanelLeftOpen size={18} /></button> : <div className="sidebar-controls"><button type="button" className="icon-button" aria-label="Search conversations" title="Search conversations" aria-haspopup="dialog" aria-expanded={searchOpen} onClick={() => setSearchOpen(true)}><Search size={18} aria-hidden="true" /></button>{onCollapse ? <button ref={desktopToggleRef} type="button" className="icon-button" aria-label="Collapse sidebar" title="Collapse sidebar" aria-expanded="true" onClick={onCollapse}><PanelLeftClose size={18} /></button> : null}</div>}</div>
     {collapsed && !mobile ? <nav className="sidebar-rail-nav" aria-label="Primary navigation">
       <button type="button" className="rail-button" aria-label="New chat" title="New chat" disabled={busy} onClick={onNewChat}><SquarePen size={17} aria-hidden="true" /></button>
       <Link className="rail-button" aria-label="Workbench" title="Workbench" href={workbenchPath}><FileText size={17} aria-hidden="true" /></Link>
