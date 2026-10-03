@@ -10,12 +10,13 @@ type Props = {
   // Accepted so the sidebar keeps passing SIGN_OUT_LABEL. The menu button uses the shorter visible label.
   signOutLabel: string;
   onOpenSettings: () => void;
+  compact?: boolean;
 };
 
 // Long enough to cross the gap between the account row and the panel, short enough that leaving feels immediate.
 const CLOSE_DELAY_MS = 100;
 
-export function AccountMenu({ email, name, onOpenSettings }: Props) {
+export function AccountMenu({ email, name, onOpenSettings, compact = false }: Props) {
   const menuId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -89,8 +90,8 @@ export function AccountMenu({ email, name, onOpenSettings }: Props) {
     };
   }, [open]);
 
-  return <div className="account-menu" ref={rootRef} onPointerEnter={pointerEnter} onPointerLeave={pointerLeave}>
-    <button ref={triggerRef} type="button" className="account-profile" aria-haspopup="menu" aria-expanded={open} aria-controls={open ? menuId : undefined} onClick={toggle}>
+  return <div className={`account-menu${compact ? " is-compact" : ""}`} ref={rootRef} onPointerEnter={pointerEnter} onPointerLeave={pointerLeave}>
+    <button ref={triggerRef} type="button" className="account-profile" aria-label={compact ? "Account" : undefined} title={compact ? "Account" : undefined} aria-haspopup="menu" aria-expanded={open} aria-controls={open ? menuId : undefined} onClick={toggle}>
       <span className="avatar" aria-hidden="true">{initial || "?"}</span>
       <span className="account-copy">
         <span className="account-name">{name}</span>

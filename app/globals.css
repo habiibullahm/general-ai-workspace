@@ -98,7 +98,19 @@ button, textarea, select { font: inherit; }
 button { color: inherit; }
 button:focus-visible, a:focus-visible, select:focus-visible, textarea:focus-visible, [role="menuitemradio"]:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .chat-workspace { display: flex; width: 100%; height: 100dvh; min-height: 520px; overflow: hidden; background: var(--bg-app); }
-.workspace-sidebar { flex: 0 0 264px; width: 264px; background: var(--bg-sidebar); border-right: 1px solid var(--border); padding: 22px 14px 12px; display: flex; flex-direction: column; min-height: 0; }
+.workspace-sidebar { flex: 0 0 264px; width: 264px; background: var(--bg-sidebar); border-right: 1px solid var(--border); padding: 22px 14px 12px; display: flex; flex-direction: column; min-height: 0; transition: flex-basis .2s ease, width .2s ease, padding .2s ease; }
+.workspace-sidebar.is-collapsed { flex-basis: 64px; width: 64px; padding: 14px 8px 12px; }
+.workspace-sidebar.is-collapsed .sidebar-top { flex-direction: column; justify-content: flex-start; gap: 12px; padding: 0 0 18px; }
+.workspace-sidebar.is-collapsed .brand-lockup { justify-content: center; width: 36px; height: 36px; }
+.workspace-sidebar.is-collapsed .brand-mark { width: 26px; height: 26px; }
+.workspace-sidebar.is-collapsed .icon-button { width: 36px; height: 36px; }
+.workspace-sidebar.is-collapsed .account-row { justify-content: center; padding: 0; }
+.sidebar-rail-nav { display: flex; flex-direction: column; align-items: center; gap: 7px; }
+.sidebar-rail-nav.rail-secondary { margin-top: auto; }
+.rail-button { display: grid; place-items: center; flex: none; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 9px; color: var(--text-3); background: transparent; cursor: pointer; }
+.rail-button:hover:not(:disabled):not([aria-disabled="true"]) { color: var(--text); background: var(--hover); }
+.rail-button.is-active { color: var(--accent); background: var(--active); }
+.rail-button:disabled, .rail-button[aria-disabled="true"] { color: var(--text-4); cursor: not-allowed; opacity: .72; }
 .sidebar-top { display: flex; align-items: center; justify-content: space-between; padding: 0 5px 25px 4px; }
 .sidebar-controls { display: flex; align-items: center; gap: 2px; }
 .brand-lockup { display: inline-flex; align-items: center; gap: 9px; color: var(--text); text-decoration: none; font-weight: 650; letter-spacing: -.04em; font-size: 19px; }
@@ -109,6 +121,7 @@ button:focus-visible, a:focus-visible, select:focus-visible, textarea:focus-visi
 .brand-lockup.is-large .brand-mark { width: 34px; height: 34px; font-size: 24px; border-radius: 11px; }
 .icon-button { display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 9px; color: var(--text-3); background: transparent; cursor: pointer; }
 .icon-button:hover { background: var(--hover); color: var(--text); }
+.icon-button.is-active { background: var(--active); color: var(--accent); }
 .new-chat-button { display: flex; align-items: center; gap: 10px; height: 41px; padding: 0 11px; background: var(--bg-raised); border: 1px solid var(--border); border-radius: 10px; text-align: left; font-size: 13px; font-weight: 550; cursor: pointer; box-shadow: var(--shadow-sm); }
 .new-chat-button:hover { background: var(--hover); border-color: var(--border-strong); }
 a.sidebar-workbench { margin-top: 8px; color: inherit; text-decoration: none; }
@@ -199,6 +212,9 @@ a.sidebar-workbench { margin-top: 8px; color: inherit; text-decoration: none; }
 .account-menu { position: relative; flex: 1; min-width: 0; }
 .account-profile { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 46px; padding: 4px 6px; border: 0; border-radius: 10px; background: transparent; text-align: left; cursor: pointer; }
 .account-profile:hover, .account-profile[aria-expanded="true"] { background: var(--hover); }
+.account-menu.is-compact { flex: none; width: 36px; }
+.account-menu.is-compact .account-profile { justify-content: center; width: 36px; min-height: 36px; padding: 3px; }
+.account-menu.is-compact .account-copy { display: none; }
 .avatar, .user-avatar { display: grid; place-items: center; flex: none; width: 29px; height: 29px; border-radius: 50%; background: var(--avatar-bg); color: var(--avatar-fg); font-size: 11px; font-weight: 600; }
 .account-copy { display: flex; flex-direction: column; flex: 1; min-width: 0; gap: 1px; }
 .account-name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--text); font-size: 12.5px; font-weight: 550; line-height: 1.25; }
@@ -236,7 +252,6 @@ a.sidebar-workbench { margin-top: 8px; color: inherit; text-decoration: none; }
 .header-context { color: var(--text-4); font-size: 12px; font-weight: 400; }
 .header-new-chat { display: none; align-items: center; justify-content: center; flex: none; width: 36px; height: 36px; border: 1px solid var(--border); border-radius: 10px; padding: 0; background: var(--bg-raised); cursor: pointer; }
 .header-new-chat:hover:not(:disabled) { background: var(--hover); }
-.desktop-sidebar-toggle { display: grid; flex: none; }
 .mobile-menu-button { display: none; }
 .sidebar-logo-toggle { position: relative; }
 .sidebar-logo-toggle .brand-mark, .sidebar-logo-toggle .menu-toggle-mark { transition: opacity .15s ease; }
