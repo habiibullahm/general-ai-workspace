@@ -19,6 +19,7 @@ type Props = {
   canMutate: boolean;
   disabled: boolean;
   editing: boolean;
+  responseFailed?: boolean;
   onRegenerate: () => void;
   onContinueInWorkbench?: (message: PersistedMessage) => void;
   workbenchPending?: boolean;
@@ -50,19 +51,19 @@ function MessageTime({ value }: { value: string | undefined }) {
 }
 
 // Memoized per message: while a reply streams, only the row whose message object changed re-renders.
-export const MessageRow = memo(function MessageRow({ message, initial, isLast, isLastUser, canMutate, disabled, editing, onRegenerate, onContinueInWorkbench, workbenchPending = false, onStartEdit, onCancelEdit, onSaveEdit }: Props) {
+export const MessageRow = memo(function MessageRow({ message, initial, isLast, isLastUser, canMutate, disabled, editing, responseFailed = false, onRegenerate, onContinueInWorkbench, workbenchPending = false, onStartEdit, onCancelEdit, onSaveEdit }: Props) {
   if (message.role === "assistant") {
     const waiting = message.status === "streaming" && !message.content;
     const canCopy = message.status !== "streaming" && message.status !== "error" && Boolean(message.content) && !placeholderResponses.has(message.content);
-    const canRegenerate = canMutate && isLast && message.status !== "streaming";
+    const canRetry = canMutate && isLast && message.status === "error";
     const showWorkbench = Boolean(onContinueInWorkbench) && canContinueInWorkbench(message);
     return <article className="message-row assistant">
       <div className="message-content assistant">
         <div className="message-author">Nibie{message.status === "streaming" ? " · Thinking" : message.status === "interrupted" ? " · Stopped" : message.status === "error" ? " · Couldn't respond" : ""}<MessageTime value={message.created_at} /></div>
-        {waiting ? <span className="thinking-dots" role="img" aria-label="Nibie is thinking"><i /><i /><i /></span> : <MessageMarkdown content={message.content} />}
-        {(canCopy || canRegenerate || showWorkbench) && <div className="message-actions">
+        {waiting ? <span className="thinking-dots" role="img" aria-label="Nibie is thinking"><i /><i /><i /></span> : message.status === "streaming" ? <div className="markdown is-streaming">{message.content}</div> : <MessageMarkdown content={message.content} />}
+        {(canCopy || canRetry || showWorkbench) && <div className="message-actions">
           {canCopy && <CopyButton text={message.content} label="Copy response" />}
-          {canRegenerate && <button type="button" className="message-action" disabled={disabled} onClick={onRegenerate}><RefreshCw size={13} aria-hidden="true" /><span>{message.status === "complete" ? "Regenerate" : "Retry"}</span></button>}
+          {canRetry && <button type="button" className="message-action" disabled={disabled} onClick={onRegenerate}><RefreshCw size={13} aria-hidden="true" /><span>Retry</span></button>}
           {showWorkbench && <button type="button" className="message-action" disabled={disabled || workbenchPending} onClick={() => onContinueInWorkbench?.(message)}><FileText size={13} aria-hidden="true" /><span>{workbenchPending ? "Opening…" : "Continue in Workbench"}</span></button>}
         </div>}
       </div>
@@ -76,7 +77,7 @@ export const MessageRow = memo(function MessageRow({ message, initial, isLast, i
         <MessageTime value={message.created_at} />
         {canMutate && isLastUser && <div className="message-actions">
           <button type="button" className="message-action" disabled={disabled} onClick={() => onStartEdit(message.id)}><Pencil size={13} aria-hidden="true" /><span>Edit</span></button>
-          {isLast && <button type="button" className="message-action" disabled={disabled} onClick={onRegenerate}><RefreshCw size={13} aria-hidden="true" /><span>Retry</span></button>}
+          {isLast && responseFailed && <button type="button" className="message-action" disabled={disabled} onClick={onRegenerate}><RefreshCw size={13} aria-hidden="true" /><span>Retry</span></button>}
         </div>}
       </div>}
     <div className="user-avatar" aria-label="You">{initial}</div>
