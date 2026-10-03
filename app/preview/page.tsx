@@ -14,5 +14,5 @@ const previewModels: ModelOption[] = [
 
 export default function PreviewPage() {
   if (process.env.NODE_ENV === "production") notFound();
-  return <ChatWorkspace email="preview@nibie.local" preview models={previewModels} reasoningModes={["Reasoning"]} renderedAt={requestTime()} />;
+  return <ChatWorkspace email="preview@nibie.local" preview models={previewModels} reasoningModes={["Balanced"]} renderedAt={requestTime()} />;
 }

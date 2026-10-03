@@ -26,8 +26,8 @@ test.describe("settings shell", () => {
 
   test("saves a new-chat default without changing the open conversation", async ({ page }) => {
     await page.goto("/preview");
-    await page.getByRole("button", { name: "Debouncing a search box" }).click();
-    await expect(page.getByRole("button", { name: "Model: Balanced" })).toBeVisible();
+    await page.getByRole("button", { name: "Debouncing a search box", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Reasoning: Medium", exact: true })).toBeEnabled();
 
     await openSettings(page);
     await dialog(page).getByRole("tab", { name: "Nibie", exact: true }).click();
@@ -35,9 +35,9 @@ test.describe("settings shell", () => {
     await expect(dialog(page).getByRole("status")).toHaveText("Saved");
     await page.keyboard.press("Escape");
 
-    await expect(page.getByRole("button", { name: "Model: Balanced" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Reasoning: Medium", exact: true })).toBeEnabled();
     await page.getByRole("button", { name: "New chat", exact: true }).first().click();
     await expect(page.getByRole("heading", { name: "What’s on your mind?" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Model: Fast" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Reasoning: Medium \(Reasoning effort is unavailable/ })).toBeDisabled();
   });
 });
