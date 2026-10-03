@@ -108,7 +108,7 @@ test("desktop chat workspace opens history and submits local messages", async ({
   await composer.press("Enter");
   await expect(page.getByText("A local preview message\nsecond line")).toBeVisible();
   await expect(page.getByText("Your message is shown in this local preview.")).toContainText("Replies are not connected yet");
-  await expect(page.getByRole("button", { name: "Reasoning: Medium", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Model: Balanced", exact: true })).toBeVisible();
 });
 
 test("mobile chat workspace uses a keyboard-accessible conversation drawer", async ({ page }) => {

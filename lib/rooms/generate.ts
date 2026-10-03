@@ -11,8 +11,8 @@ const overviewSchema = roomDraftSchema.pick({ description: true }).required().ex
   .refine((overview) => overview.description !== null && Object.values(overview.brief).every((value) => value !== null), "Every generated room field must be filled.");
 
 export async function generateRoomOverview(draft: RoomDraft): Promise<RoomOverview> {
-  const configured = getAiConfig().models;
-  const mode = (["Fast", "Balanced", "Reasoning"] as const).find((id) => configured[id] === "gpt-6-luna");
+  const { routes } = getAiConfig();
+  const mode = (["Fast", "Balanced", "High"] as const).find((id) => routes[id]?.model === "gpt-6-luna");
   if (!mode) throw new Error("Room drafting requires gpt-6-luna.");
   const aborter = new AbortController();
   const timeout = setTimeout(() => aborter.abort(), 45_000);

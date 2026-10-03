@@ -1,4 +1,5 @@
 import "server-only";
+import { normalizeSavedMode } from "@/lib/chat/legacy-mode";
 
 import { sanitizeModelOutput } from "@/lib/ai/sanitize-model-output";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -91,7 +92,8 @@ export async function getChatWorkspaceData(conversationId: unknown) {
   const conversationsError = withoutRoom ? withoutRoom.error : withoutArchive ? withoutArchive.error : conversationResult.error;
   const empty = { conversations: [] as ConversationSummary[], archivedConversations: [] as ConversationSummary[], rooms: [] as RoomSummary[], roomsError: null as string | null, messages: [] as PersistedMessage[], activeId: null };
   if (conversationsError) return { ...empty, error: "Conversation history couldn't be loaded. Refresh to try again." };
-  const allConversations = ((conversationRows ?? []) as ConversationSummary[]).map((row) => ({ ...row, room_id: row.room_id ?? null, archived_at: row.archived_at ?? null }));
+  // Saved modes from earlier builds ("Reasoning", display names) are normalized here, so the client only ever sees Fast / Balanced / High.
+  const allConversations = ((conversationRows ?? []) as ConversationSummary[]).map((row) => ({ ...row, selected_model: normalizeSavedMode(row.selected_model) ?? row.selected_model, room_id: row.room_id ?? null, archived_at: row.archived_at ?? null }));
   const conversations = allConversations.filter((item) => !item.archived_at);
   const archivedConversations = allConversations.filter((item) => item.archived_at);
   const roomsMissing = schemaUnavailable(roomsError) || schemaUnavailable(briefsError);

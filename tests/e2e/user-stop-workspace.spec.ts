@@ -32,7 +32,7 @@ async function workspace(page: Page, mode: string, stopFailure = false) {
     if (!route.request().headers()["next-action"]) return route.abort();
     const args = JSON.parse(route.request().postData()!) as unknown[];
     actions.push(args);
-    const modelUpdate = args.length === 2 && ["Fast", "Balanced", "Reasoning"].includes(args[1] as string);
+    const modelUpdate = args.length === 2 && ["Fast", "Balanced", "High"].includes(args[1] as string);
     // Only the message save (and an explicit model choice) are Server Actions here; anything else is recorded and fails the Stop tests.
     if (args.length !== 4 && !modelUpdate) return route.abort();
     const adds = actions.filter((action) => action.length === 4).length;
@@ -75,7 +75,7 @@ async function workspace(page: Page, mode: string, stopFailure = false) {
   return { actions, stops, releaseStop };
 }
 
-for (const mode of ["Fast", "Balanced", "Reasoning"]) {
+for (const mode of ["Fast", "Balanced", "High"]) {
   test(mode + ": main workspace Stop allows Send before old persistence acknowledges", async ({ page }) => {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
@@ -155,29 +155,23 @@ test("failed background Stop acknowledgement preserves the partial and never re-
   await expect(page.locator(".message-row.assistant").first()).toContainText("Partial first response");
 });
 
-test("model and reasoning effort reach the chat request as independent choices", async ({ page }) => {
+test("the single picker sends the chosen mode and never a reasoning field", async ({ page }) => {
   const server = await workspace(page, "Balanced");
   const input = page.getByRole("textbox", { name: "Message Nibie" });
-  const reasoning = page.getByRole("button", { name: /^Reasoning:/ });
-  await expect(page.getByRole("button", { name: "Model: Auto", exact: true })).toBeVisible();
-  await expect(reasoning).toBeDisabled();
-  await page.getByRole("button", { name: "Model: Auto", exact: true }).click();
-  await page.getByRole("menuitemradio", { name: "GPT-6 Luna", exact: true }).click();
-  await reasoning.click();
-  await page.getByRole("menuitemradio", { name: /^Low/ }).click();
+  await expect(page.getByRole("button", { name: "Model: Balanced", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Reasoning:/ })).toHaveCount(0);
+  await page.getByRole("button", { name: "Model: Balanced", exact: true }).click();
+  await page.getByRole("menuitemradio", { name: /^High/ }).click();
   await input.fill("First"); await page.getByRole("button", { name: "Send message" }).click();
   await expect(page.locator(".message-row.assistant")).toContainText("Partial first response");
   await page.getByRole("button", { name: "Stop response" }).click();
-  // Switching model leaves the stored effort alone; it is simply not sent to a model that cannot use it.
-  await page.getByRole("button", { name: "Model: GPT-6 Luna", exact: true }).click();
-  await page.getByRole("menuitemradio", { name: "MiniMax M2.7", exact: true }).click();
-  await expect(page.getByRole("button", { name: /^Reasoning: Low \(Reasoning effort is unavailable/ })).toBeDisabled();
+  await page.getByRole("button", { name: "Model: High", exact: true }).click();
+  await page.getByRole("menuitemradio", { name: /^Fast/ }).click();
   await input.fill("Second"); await page.getByRole("button", { name: "Send message" }).click();
   await expect(page.locator(".message-row.assistant")).toHaveCount(2);
   const bodies = await page.evaluate(() => window.userStopHarness!.requests.map((request) => request.body));
-  expect(bodies.map(({ model, reasoning }: { model: string; reasoning?: string }) => ({ model, reasoning }))).toEqual([
-    { model: "Reasoning", reasoning: "low" }, { model: "Fast", reasoning: undefined },
+  expect(bodies.map(({ model, ...rest }) => ({ model, hasReasoning: "reasoning" in rest }))).toEqual([
+    { model: "High", hasReasoning: false }, { model: "Fast", hasReasoning: false },
   ]);
-  expect(server.actions.filter((args) => args.length === 2).map((args) => args[1])).toEqual(["Reasoning", "Fast"]);
-  expect(await page.evaluate(() => localStorage.getItem("nibie-reasoning"))).toBe("low");
+  expect(server.actions.filter((args) => args.length === 2).map((args) => args[1])).toEqual(["High", "Fast"]);
 });

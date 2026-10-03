@@ -50,9 +50,9 @@ const statements = [
 ] as const;
 
 const modes = [
-  ["Fast", "For everyday questions and quick work."],
-  ["Balanced", "For most conversations and daily thinking."],
-  ["Reasoning", "For problems that benefit from a deeper pass."],
+  ["Fast", "Quick answers"],
+  ["Balanced", "Best for everyday work"],
+  ["High", "Deeper reasoning"],
 ] as const;
 
 const boundaries = [
@@ -117,7 +117,7 @@ function WorkspaceFrame() {
             <div className="composer">
               <p className="landing-composer-placeholder">Message Nibie…</p>
               <div className="composer-tools">
-                <div className="landing-frame-modes"><span>Fast</span><span className="is-selected">Balanced</span><span>Reasoning</span></div>
+                <div className="landing-frame-modes"><span>Fast</span><span className="is-selected">Balanced</span><span>High</span></div>
                 <div className="send-button"><ArrowUp size={18} strokeWidth={2.3} /></div>
               </div>
             </div>
@@ -182,7 +182,7 @@ export function LandingPage() {
           </div>
           <div className="landing-settings">
             <SettingChoice label="Preferred language" options={["Auto", "English", "Bahasa Indonesia"]} selected="Auto" />
-            <SettingChoice label="Default model" options={["Fast", "Balanced", "Reasoning"]} selected="Balanced" />
+            <SettingChoice label="Default model" options={["Fast", "Balanced", "High"]} selected="Balanced" />
             <SettingChoice label="Response length" options={["Concise", "Balanced", "Detailed"]} selected="Balanced" />
             <SettingChoice label="Response style" options={["Natural", "Professional", "Direct"]} selected="Natural" />
             <div className="landing-setting">
@@ -204,7 +204,7 @@ export function LandingPage() {
         <div className="landing-mode-switch" aria-hidden="true">
           <span>Fast</span>
           <span className="is-selected">Balanced</span>
-          <span>Reasoning</span>
+          <span>High</span>
         </div>
         <div className="landing-mode-list">
           {modes.map(([name, copy]) => <article key={name}>

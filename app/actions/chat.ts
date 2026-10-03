@@ -3,7 +3,8 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getAuthenticatedUser } from "@/lib/auth/get-user";
 import { schemaUnavailable } from "@/lib/chat/schema-error";
-import { modelSchema, validateConversationId, validateMessage, validateTitle, type ChatModel } from "@/lib/chat/validation";
+import { validateConversationId, validateMessage, validateTitle, type ChatModel } from "@/lib/chat/validation";
+import { modelInputSchema } from "@/lib/chat/legacy-mode";
 import { getModelOptions } from "@/lib/ai/registry";
 import { logError, logInfo } from "@/lib/observability/logger";
 import { operationalCodes } from "@/lib/observability/codes";
@@ -102,7 +103,7 @@ async function appendMessage(supabase: Supabase, conversationId: string, message
 }
 
 export async function createConversationAction(model: unknown): Promise<ChatActionResult<ConversationRow>> {
-  const parsedModel = modelSchema.safeParse(model);
+  const parsedModel = modelInputSchema.safeParse(model);
   if (!parsedModel.success) return { error: "Choose a valid response mode." };
   if (!isModeAvailable(parsedModel.data)) return modelUnavailable;
   try {
@@ -118,7 +119,7 @@ export async function createConversationAction(model: unknown): Promise<ChatActi
 // The first message of a new chat: creates the conversation and saves the message in one round trip from the browser.
 // If the message cannot be saved, the empty conversation is removed again so history is not left with a blank "New chat".
 export async function startConversationAction(model: unknown, messageId: unknown, content: unknown, roomId: unknown = null): Promise<ChatActionResult<{ conversation: ConversationRow; message: SavedMessage }>> {
-  const parsedModel = modelSchema.safeParse(model);
+  const parsedModel = modelInputSchema.safeParse(model);
   const parsedMessageId = validateConversationId(messageId);
   const parsedContent = validateMessage(content);
   const parsedRoom = roomId === null || roomId === undefined ? { success: true as const, data: null } : validateConversationId(roomId);
@@ -145,7 +146,7 @@ export async function startConversationAction(model: unknown, messageId: unknown
 
 export async function updateConversationModelAction(id: unknown, model: unknown): Promise<ChatActionResult> {
   const parsedId = validateConversationId(id);
-  const parsedModel = modelSchema.safeParse(model);
+  const parsedModel = modelInputSchema.safeParse(model);
   if (!parsedId.success) return { error: "Choose a valid conversation." };
   if (!parsedModel.success) return { error: "Choose a valid response mode." };
   if (!isModeAvailable(parsedModel.data)) return modelUnavailable;

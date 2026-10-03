@@ -3,8 +3,9 @@ const { createClient, provider } = vi.hoisted(() => ({ createClient: vi.fn(), pr
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: createClient }));
 vi.mock("@/lib/ai/provider", () => ({ chatProvider: { stream: provider } }));
 vi.mock("@/lib/ai/registry", () => ({
-  getModelOptions: () => ({ models: [{ id: "Fast" }, { id: "Balanced" }, { id: "Reasoning" }], reasoningModes: ["Reasoning"] }),
+  getModelOptions: () => ({ models: [{ id: "Fast" }, { id: "Balanced" }, { id: "High" }] }),
   contextCapabilitiesFor: () => ({ contextWindowTokens: 16384, maxOutputTokens: 2048 }),
+  providerFor: () => "openai",
 }));
 import { POST } from "../../app/api/chat/route";
 import { POST as stopRoute } from "../../app/api/chat/stop/route";
@@ -75,7 +76,7 @@ function request(user: string) { return new Request("http://localhost/api/chat",
 afterEach(() => { vi.restoreAllMocks(); provider.mockReset(); createClient.mockReset(); });
 
 describe("main chat route/action Stop handoff", () => {
-  it.each(["Fast", "Balanced", "Reasoning"])("starts a new %s request while stopped partial-save and stop acknowledgement are pending", async (mode) => {
+  it.each(["Fast", "Balanced", "High"])("starts a new %s request while stopped partial-save and stop acknowledgement are pending", async (mode) => {
     const db = database(mode);
     const cancelled = vi.fn();
     provider.mockResolvedValueOnce(new ReadableStream<Uint8Array>({ start(controller) {

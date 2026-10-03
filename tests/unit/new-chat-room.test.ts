@@ -4,8 +4,9 @@ const { createClient, stream } = vi.hoisted(() => ({ createClient: vi.fn(), stre
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: createClient }));
 vi.mock("@/lib/ai/provider", () => ({ chatProvider: { stream } }));
 vi.mock("@/lib/ai/registry", () => ({
-  getModelOptions: () => ({ models: [{ id: "Balanced", label: "Balanced", model: "test" }], reasoningModes: [] }),
+  getModelOptions: () => ({ models: [{ id: "Balanced", label: "Balanced", description: "" }] }),
   contextCapabilitiesFor: () => ({ contextWindowTokens: 16_384, maxOutputTokens: 2_048 }),
+  providerFor: () => "openai",
 }));
 
 import { moveConversationAction, startConversationAction } from "../../app/actions/chat";

@@ -3,10 +3,11 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getAuthenticatedUser } from "@/lib/auth/get-user";
 import { schemaUnavailable } from "@/lib/chat/schema-error";
 import { validateConversationId, validateMessage } from "@/lib/chat/validation";
-import { defaultReasoningEffort, modelChoiceSchema, reasoningAllowed, reasoningEffortSchema, resolveMode } from "@/lib/chat/models";
+import { resolveMode } from "@/lib/chat/models";
+import { modelChoiceInputSchema, normalizeSavedMode } from "@/lib/chat/legacy-mode";
 import { chatProvider } from "@/lib/ai/provider";
 import { toProviderMessages } from "@/lib/ai/provider-messages";
-import { contextCapabilitiesFor, getModelOptions } from "@/lib/ai/registry";
+import { contextCapabilitiesFor, getModelOptions, providerFor } from "@/lib/ai/registry";
 import { createReasoningStreamFilter, sanitizeModelOutput } from "@/lib/ai/sanitize-model-output";
 import { ProviderStreamError, readOpenAiSse } from "@/lib/ai/sse";
 import { buildContext } from "@/lib/context/build-context";
@@ -49,17 +50,17 @@ async function respond(request: Request, requestId: string, requestStartedAt: nu
 
   let body: unknown;
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Invalid request." }, { status: 400 }); }
-  const value = body as { conversationId?: unknown; userMessageId?: unknown; regenerate?: unknown; model?: unknown; reasoning?: unknown; fileIds?: unknown };
+  const value = body as { conversationId?: unknown; userMessageId?: unknown; regenerate?: unknown; model?: unknown; fileIds?: unknown };
   const parsedId = validateConversationId(value?.conversationId);
   const parsedMessageId = validateConversationId(value?.userMessageId);
   const selectedFiles = parseSelectedFileIds(value?.fileIds, MAX_FILES_PER_MESSAGE);
-  // The client may name a mode and a reasoning effort, but only from fixed vocabularies; neither is ever a provider model id.
-  const requestedModel = value?.model === undefined ? undefined : modelChoiceSchema.safeParse(value.model);
-  const requestedReasoning = value?.reasoning === undefined ? undefined : reasoningEffortSchema.safeParse(value.reasoning);
-  if (!selectedFiles.ok || !parsedId.success || !parsedMessageId.success || (value.regenerate !== undefined && typeof value.regenerate !== "boolean") || requestedModel?.success === false || requestedReasoning?.success === false) return NextResponse.json({ error: "Invalid request." }, { status: 400 });
+  // The client may name a mode from a fixed vocabulary; it is never a provider model id. Reasoning is server-side routing config,
+  // so a stale client's `reasoning` field is simply ignored.
+  const requestedModel = value?.model === undefined ? undefined : modelChoiceInputSchema.safeParse(value.model);
+  if (!selectedFiles.ok || !parsedId.success || !parsedMessageId.success || (value.regenerate !== undefined && typeof value.regenerate !== "boolean") || requestedModel?.success === false) return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   const regenerate = value.regenerate === true;
   // Only modes that are configured on the server can be used, whether the client asked for one or the conversation has one saved.
-  const { models: availableModels, reasoningModes } = getModelOptions();
+  const { models: availableModels } = getModelOptions();
   const availableModes = availableModels.map((option) => option.id);
   if (requestedModel && requestedModel.data !== "Auto" && !availableModes.includes(requestedModel.data)) return NextResponse.json({ error: "That model isn't available." }, { status: 400 });
 
@@ -104,10 +105,8 @@ async function respond(request: Request, requestId: string, requestStartedAt: nu
       return { name: row.original_name, text: row.extracted_text };
     });
   }
-  const mode = requestedModel?.data && requestedModel.data !== "Auto" ? requestedModel.data : resolveMode(conversation.selected_model, availableModes);
+  const mode = requestedModel?.data && requestedModel.data !== "Auto" ? requestedModel.data : resolveMode(normalizeSavedMode(conversation.selected_model), availableModes);
   if (!mode) return NextResponse.json({ error: safeError }, { status: 503 });
-  const reasoning = requestedReasoning?.data ?? defaultReasoningEffort;
-  if (!reasoningAllowed(reasoning, mode, reasoningModes)) return NextResponse.json({ error: "Reasoning isn't available for this model." }, { status: 400 });
   if (messageError) return NextResponse.json({ error: safeError }, { status: 503 });
   if (!userMessage) return NextResponse.json({ error: "Message unavailable." }, { status: 404 });
   if (!validateMessage(userMessage.content).success) return NextResponse.json({ error: "Invalid saved message." }, { status: 400 });
@@ -204,7 +203,7 @@ async function respond(request: Request, requestId: string, requestStartedAt: nu
   let finishReason = "unspecified";
   const timeoutError = "The provider took too long to finish this response. Please try again.";
   let responseStream: ReadableStream<Uint8Array>;
-  try { responseStream = await chatProvider.stream(mode, prompt, aborter.signal, { reasoning }); }
+  try { responseStream = await chatProvider.stream(mode, prompt, aborter.signal); }
   catch (error) {
     const interrupted = clientCancelled || request.signal.aborted;
     if (interrupted) logWarn("chat.response.interrupted", { requestId, stage: "provider", status: "interrupted", durationMs: durationMs() });
@@ -281,7 +280,7 @@ async function respond(request: Request, requestId: string, requestStartedAt: nu
         else if (!clientCancelled) controller.enqueue(encoder.encode(saved ? event("status", { status: "interrupted" }) : event("error", { error: safeError })));
       } finally {
         logInfo("chat.response.metrics", {
-          requestId, providerTtftMs, generationDurationMs: Date.now() - providerStartedAt,
+          requestId, logicalMode: mode, provider: providerFor(mode), providerTtftMs, generationDurationMs: Date.now() - providerStartedAt,
           totalDurationMs: Date.now() - requestStartedAt, finishReason,
           outputChars: output.length, streamCompleted: completed,
         });

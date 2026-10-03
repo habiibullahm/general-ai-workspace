@@ -23,8 +23,8 @@ test("new chat starts in General; initial selection survives typing and becomes 
   await newChat(page);
   await chooseRoom(page, roomName);
   await page.getByRole("textbox", { name: "Message Nibie" }).fill("Room hello");
-  await page.getByRole("button", { name: "Reasoning: Medium", exact: true }).click();
-  await page.getByRole("menuitemradio", { name: /Low/ }).click();
+  await page.getByRole("button", { name: "Model: Balanced", exact: true }).click();
+  await page.getByRole("menuitemradio", { name: /^Fast/ }).click();
   await expect(roomSelector(page)).toHaveAccessibleName(`Room: ${roomName}`);
   await page.getByRole("button", { name: "Send message" }).click();
   await expect(page.getByLabel(`Room context: Room · ${roomName}`, { exact: true })).toBeVisible();
@@ -33,8 +33,8 @@ test("new chat starts in General; initial selection survives typing and becomes 
   await expect(roomSelector(page)).toHaveAccessibleName("Room: General");
   await page.locator('.desktop-sidebar [data-conversation-id]').filter({ hasText: "Room hello" }).locator(".history-item").click();
   await expect(page.getByLabel(`Room context: Room · ${roomName}`, { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Reasoning: Low", exact: true }).click();
-  await page.getByRole("menuitemradio", { name: /Medium/ }).click();
+  await page.getByRole("button", { name: "Model: Fast", exact: true }).click();
+  await page.getByRole("menuitemradio", { name: /^Balanced/ }).click();
   await expect(page.getByLabel(`Room context: Room · ${roomName}`, { exact: true })).toBeVisible();
 });
 
@@ -89,12 +89,13 @@ test("no Rooms still offers General", async ({ page }) => {
   await expect(page.getByLabel("Room context: General", { exact: true })).toBeVisible();
 });
 
-for (const width of [390, 768, 1024, 1440]) {
-  test(`composer Plus, Room, reasoning, and send fit at ${width}px`, async ({ page }) => {
+for (const width of [320, 390, 768, 1024, 1440]) {
+  test(`composer Plus, Room, mode picker, and send fit at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 });
     await chooseRoom(page, roomName);
     await expect(page.getByRole("button", { name: "Attach file", exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: /^Reasoning:/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Model:/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Reasoning:/ })).toHaveCount(0);
     const controls = page.locator(".composer-left-tools");
     const textarea = page.getByRole("textbox", { name: "Message Nibie" });
     const controlBox = await controls.boundingBox();
@@ -102,21 +103,29 @@ for (const width of [390, 768, 1024, 1440]) {
     expect(controlBox!.y).toBeGreaterThanOrEqual(textareaBox!.y + textareaBox!.height);
     const plus = await page.getByRole("button", { name: "Attach file", exact: true }).boundingBox();
     const room = await roomSelector(page).boundingBox();
-    const effort = await page.getByRole("button", { name: /^Reasoning:/ }).boundingBox();
+    const effort = await page.getByRole("button", { name: /^Model:/ }).boundingBox();
     const sendButton = await page.getByRole("button", { name: "Send message", exact: true }).boundingBox();
     expect(plus!.x + plus!.width).toBeLessThanOrEqual(room!.x);
-    expect(room!.x + room!.width).toBeLessThanOrEqual(effort!.x);
-    expect(effort!.x + effort!.width).toBeLessThanOrEqual(sendButton!.x);
+    if (Math.abs(effort!.y - room!.y) < 4) {
+      expect(room!.x + room!.width).toBeLessThanOrEqual(effort!.x);
+      expect(effort!.x + effort!.width).toBeLessThanOrEqual(sendButton!.x);
+    } else {
+      // On the narrowest phones a long room name pushes the mode picker onto a second row; it must stay fully on screen.
+      expect(width).toBeLessThanOrEqual(320);
+      expect(effort!.y).toBeGreaterThan(room!.y);
+      expect(effort!.x).toBeGreaterThanOrEqual(0);
+      expect(effort!.x + effort!.width).toBeLessThanOrEqual(width);
+    }
     expect(Math.abs(plus!.y + plus!.height / 2 - room!.y - room!.height / 2)).toBeLessThanOrEqual(1);
     await roomSelector(page).click();
     const menu = await page.getByRole("menu", { name: "Room", exact: true }).boundingBox();
     expect(menu!.x).toBeGreaterThanOrEqual(0);
     expect(menu!.x + menu!.width).toBeLessThanOrEqual(width);
     await page.keyboard.press("Escape");
-    await page.getByRole("button", { name: /^Reasoning:/ }).click();
-    const reasoningMenu = await page.getByRole("menu", { name: "Reasoning", exact: true }).boundingBox();
-    expect(reasoningMenu!.x).toBeGreaterThanOrEqual(0);
-    expect(reasoningMenu!.x + reasoningMenu!.width).toBeLessThanOrEqual(width);
+    await page.getByRole("button", { name: /^Model:/ }).click();
+    const modelMenu = await page.getByRole("menu", { name: "Model", exact: true }).boundingBox();
+    expect(modelMenu!.x).toBeGreaterThanOrEqual(0);
+    expect(modelMenu!.x + modelMenu!.width).toBeLessThanOrEqual(width);
     await page.keyboard.press("Escape");
     expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
     await expect(page.getByRole("button", { name: "Send message" })).toBeVisible();

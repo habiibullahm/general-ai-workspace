@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const { createClient, stream, claim, modelOptions, contextCapabilities } = vi.hoisted(() => ({ createClient: vi.fn(), stream: vi.fn(), claim: vi.fn(), modelOptions: vi.fn(), contextCapabilities: vi.fn(() => ({ contextWindowTokens: 16_384, maxOutputTokens: 2_048 })) }));
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: createClient }));
 vi.mock("@/lib/ai/provider", () => ({ chatProvider: { stream } }));
-vi.mock("@/lib/ai/registry", () => ({ getModelOptions: modelOptions, contextCapabilitiesFor: contextCapabilities }));
-const allModes = { models: ["Fast", "Balanced", "Reasoning"].map((id) => ({ id, label: id, model: `${id.toLowerCase()}-id` })), reasoningModes: ["Reasoning"] };
+vi.mock("@/lib/ai/registry", () => ({ getModelOptions: modelOptions, contextCapabilitiesFor: contextCapabilities, providerFor: (mode: string) => mode === "Fast" ? "sumopod" : "openai" }));
+const allModes = { models: ["Fast", "Balanced", "High"].map((id) => ({ id, label: id, description: "" })) };
 
 import { POST } from "../../app/api/chat/route";
 import { CONTEXT_DATA_PREAMBLE, CONTEXT_POLICY_TEXT, contextPolicyFor } from "../../lib/context/context-policy";
@@ -33,23 +33,24 @@ describe("POST /api/chat", () => {
     expect(JSON.stringify(writes)).not.toContain("private");
   });
 
-  it.each(["Auto", "Reasoning"])("routes model choice %s on the server", async (model) => {
+  it.each(["Auto", "High"])("routes model choice %s on the server", async (model) => {
     readyClient([]);
     stream.mockResolvedValue(providerChunks(["Done."], "stop"));
     const request = validRequest();
     const response = await POST(new Request(request.url, { method: "POST", headers: request.headers, body: JSON.stringify({ ...await request.json(), model }) }));
     await response.text();
-    expect(stream.mock.calls[0][0]).toBe(model === "Auto" ? "Balanced" : "Reasoning");
+    expect(stream.mock.calls[0][0]).toBe(model === "Auto" ? "Balanced" : "High");
   });
 
-  it.each(["low", "medium", "high"])("keeps %s effort separate from response detail on retry", async (reasoning) => {
+  it.each(["Fast", "Balanced", "High"])("gives %s the same adaptive response-detail policy, so the mode never sets answer length", async (model) => {
     readyClient([]);
     stream.mockResolvedValue(providerChunks(["Done."], "stop"));
     const request = validRequest();
-    const response = await POST(new Request(request.url, { method: "POST", headers: request.headers, body: JSON.stringify({ ...await request.json(), model: "Reasoning", reasoning, regenerate: true }) }));
+    const response = await POST(new Request(request.url, { method: "POST", headers: request.headers, body: JSON.stringify({ ...await request.json(), model, regenerate: true }) }));
     await response.text();
-    expect(stream.mock.calls[0][3]).toEqual({ reasoning });
-    expect(stream.mock.calls[0][1][0].content).toBe(contextPolicyFor("Reasoning"));
+    expect(stream.mock.calls[0][0]).toBe(model);
+    expect(stream.mock.calls[0][1][0].content).toBe(contextPolicyFor("High"));
+    expect(stream.mock.calls[0][1][0].content).toBe(contextPolicyFor("Fast"));
     expect(claim).toHaveBeenCalledWith("regenerate_assistant_message", expect.any(Object));
   });
 
@@ -150,7 +151,7 @@ describe("POST /api/chat", () => {
     expect(response.headers.get("content-type")).toContain("text/event-stream");
     expect(body).toContain('event: delta\ndata: {"text":"Hello"}');
     expect(body).toContain('event: status\ndata: {"status":"complete"}');
-    expect(stream).toHaveBeenCalledWith("Balanced", [{ role: "system", content: CONTEXT_POLICY_TEXT }, { role: "user", content: "hello" }], expect.any(AbortSignal), { reasoning: "auto" });
+    expect(stream).toHaveBeenCalledWith("Balanced", [{ role: "system", content: CONTEXT_POLICY_TEXT }, { role: "user", content: "hello" }], expect.any(AbortSignal));
     expect(claim).toHaveBeenCalledWith("claim_assistant_message", { p_conversation_id: "conversation", p_user_message_id: "b79e56e1-b479-46f4-97d3-30b2e22be90e" });
     expect(body).toContain(`"id":"${assistantId}"`);
     expect(body).toContain('"position":3');
@@ -419,9 +420,9 @@ describe("POST /api/chat", () => {
     });
 
     it("rejects a mode that is not configured on the server, before reading any user data", async () => {
-      modelOptions.mockReturnValue({ models: allModes.models.filter((option) => option.id !== "Reasoning"), reasoningModes: [] });
+      modelOptions.mockReturnValue({ models: allModes.models.filter((option) => option.id !== "High") });
       const from = readyClient([]);
-      const response = await post({ model: "Reasoning" });
+      const response = await post({ model: "High" });
       expect(response.status).toBe(400);
       expect(await response.text()).toContain("isn't available");
       expect(from).not.toHaveBeenCalled();
@@ -429,7 +430,7 @@ describe("POST /api/chat", () => {
     });
 
     it("falls back to an available mode when the saved one is no longer configured", async () => {
-      modelOptions.mockReturnValue({ models: allModes.models.filter((option) => option.id === "Fast"), reasoningModes: [] });
+      modelOptions.mockReturnValue({ models: allModes.models.filter((option) => option.id === "Fast") });
       readyClient([]);
       stream.mockResolvedValue(sseBody("ok"));
       expect((await post({})).status).toBe(200);
@@ -437,39 +438,32 @@ describe("POST /api/chat", () => {
     });
 
     it("fails safely when no mode is configured at all", async () => {
-      modelOptions.mockReturnValue({ models: [], reasoningModes: [] });
+      modelOptions.mockReturnValue({ models: [] });
       readyClient([]);
       expect((await post({})).status).toBe(503);
       expect(stream).not.toHaveBeenCalled();
     });
 
-    it("passes an allowed reasoning effort to the provider only for modes that support it", async () => {
+    it("accepts the legacy Reasoning id server-side, from an old client request or an old saved row, and routes it as High", async () => {
       readyClient([]);
       stream.mockResolvedValue(sseBody("ok"));
-      expect((await post({ model: "Reasoning", reasoning: "low" })).status).toBe(200);
-      expect(stream).toHaveBeenCalledWith("Reasoning", expect.any(Array), expect.any(AbortSignal), { reasoning: "low" });
-    });
-
-    it("rejects a reasoning effort for a mode that does not support it, without calling the provider", async () => {
-      readyClient([]);
-      const response = await post({ model: "Balanced", reasoning: "high" });
-      expect(response.status).toBe(400);
-      expect(await response.text()).toContain("Reasoning isn't available");
-      expect(claim).not.toHaveBeenCalled();
-      expect(stream).not.toHaveBeenCalled();
-    });
-
-    it("rejects reasoning values outside the allowlist", async () => {
-      readyClient([]);
-      for (const reasoning of ["bogus", "xhigh", "LOW", "", 1, null]) expect((await post({ model: "Reasoning", reasoning })).status).toBe(400);
-      expect(stream).not.toHaveBeenCalled();
-    });
-
-    it("treats auto as no reasoning parameter, even for modes that do not support it", async () => {
-      readyClient([]);
+      expect((await post({ model: "Reasoning" })).status).toBe(200);
+      expect(stream.mock.calls[0][0]).toBe("High");
+      stream.mockReset();
+      readyClient([], undefined, "Reasoning");
       stream.mockResolvedValue(sseBody("ok"));
-      expect((await post({ model: "Balanced", reasoning: "auto" })).status).toBe(200);
-      expect(stream.mock.calls[0][3]).toEqual({ reasoning: "auto" });
+      expect((await post({})).status).toBe(200);
+      expect(stream.mock.calls[0][0]).toBe("High");
+    });
+
+    it("never lets a client set reasoning: a stale reasoning field is ignored and the provider gets only the mode", async () => {
+      for (const reasoning of ["low", "high", "auto", "bogus", 1, null]) {
+        readyClient([]);
+        stream.mockReset().mockResolvedValue(sseBody("ok"));
+        expect((await post({ model: "High", reasoning })).status).toBe(200);
+        expect(stream.mock.calls[0]).toHaveLength(3);
+        expect(stream.mock.calls[0][0]).toBe("High");
+      }
     });
   });
 
@@ -520,7 +514,7 @@ describe("POST /api/chat", () => {
     expect(JSON.stringify(events)).not.toContain("Private reasoning");
   });
 
-  it.each((["Fast", "Balanced", "Reasoning"] as const).flatMap((mode) => [false, true].map((regenerate) => ({ mode, regenerate }))))("uses the resolved mode's quality policy for generation/retry: %j", async ({ mode, regenerate }) => {
+  it.each((["Fast", "Balanced", "High"] as const).flatMap((mode) => [false, true].map((regenerate) => ({ mode, regenerate }))))("uses the resolved mode's quality policy for generation/retry: %j", async ({ mode, regenerate }) => {
     readyClient([]);
     stream.mockResolvedValue(sseBody("Hello"));
     const request = validRequest();
@@ -662,14 +656,14 @@ describe("POST /api/chat", () => {
 });
 
 const encoder = new TextEncoder();
-function readyClient(writes: unknown[], updates: unknown[] = [{ data: { id: assistantId }, error: null }]) {
+function readyClient(writes: unknown[], updates: unknown[] = [{ data: { id: assistantId }, error: null }], savedModel = "Balanced") {
   const results = [
     { data: { id: "user-message", position: 1, content: "hello" }, error: null },
     { data: [{ role: "user", content: "hello", status: "complete", position: 1 }], error: null },
     ...updates,
   ];
   const from = vi.fn((table: string) => table === "user_preferences" ? query(preferenceResult) : table === "conversations"
-    ? query({ data: { id: "conversation", selected_model: "Balanced" }, error: null })
+    ? query({ data: { id: "conversation", selected_model: savedModel }, error: null })
     : query(results.shift(), (write) => writes.push(write)));
   createClient.mockResolvedValue({ auth: { getClaims: async () => ({ data: { claims: { sub: "owner" } }, error: null }) }, from, rpc: claim });
   return from;

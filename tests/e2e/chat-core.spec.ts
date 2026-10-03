@@ -32,28 +32,21 @@ test("a pointer activation begun on Send cannot become Stop after another submit
   await expect(page.getByLabel("Stops", { exact: true })).toHaveText("0");
 });
 
-test("model and reasoning are independent pickers with truthful reasoning support", async ({ page }) => {
+test("one capability picker: Fast, Balanced, High with product copy, default Balanced, no reasoning control", async ({ page }) => {
   await page.goto("/preview/chat-core");
-  await expect(page.getByRole("button", { name: "Model: Auto", exact: true })).toBeVisible();
-  // Reasoning is always present; it is enabled only for a model that supports an explicit effort.
-  await expect(page.getByRole("button", { name: /^Reasoning: Medium \(Reasoning effort is unavailable/ })).toBeDisabled();
-  await page.getByRole("button", { name: "Model: Auto", exact: true }).click();
-  await expect(page.getByRole("menu", { name: "Model", exact: true }).getByRole("menuitemradio")).toHaveText(["Auto", "MiniMax M2.7", "DeepSeek V4.1 Flash", "GPT-6 Luna"]);
-  await page.getByRole("menuitemradio", { name: "GPT-6 Luna", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Model: GPT-6 Luna", exact: true })).toBeVisible();
-  for (const effort of ["Low", "Medium", "High"]) {
-    await page.getByRole("button", { name: /^Reasoning:/ }).click();
-    await page.getByRole("menuitemradio", { name: new RegExp(effort) }).click();
-    await expect(page.getByRole("button", { name: "Reasoning: " + effort, exact: true })).toBeEnabled();
-  }
+  await expect(page.getByRole("button", { name: "Model: Balanced", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Reasoning:/ })).toHaveCount(0);
+  await page.getByRole("button", { name: "Model: Balanced", exact: true }).click();
+  await expect(page.getByRole("menu", { name: "Model", exact: true }).getByRole("menuitemradio")).toHaveText([/^Fast\s*Quick answers/, /^Balanced\s*Best for everyday work/, /^High\s*Deeper reasoning/]);
+  await page.getByRole("menuitemradio", { name: /^High/ }).click();
+  await expect(page.getByRole("button", { name: "Model: High", exact: true })).toBeVisible();
+  await expect(page.locator(".composer")).not.toContainText(/Reasoning|Low|Medium|Auto|GPT|DeepSeek|MiniMax|OpenAI/);
 });
 
-for (const width of [390, 768, 1024, 1440]) {
-  test("composer controls fit at " + width, async ({ page }) => {
+for (const width of [320, 390, 768, 1024, 1440]) {
+  test("mode picker fits at " + width, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.goto("/preview");
-    await page.getByRole("button", { name: "Model: Auto", exact: true }).click();
-    await page.getByRole("menuitemradio", { name: "DeepSeek V4.1 Flash", exact: true }).click();
     await expect(page.getByRole("textbox", { name: "Message Nibie" })).toBeVisible();
     for (const element of await page.locator(".composer-tools button").all()) {
       const box = await element.boundingBox();
@@ -61,12 +54,14 @@ for (const width of [390, 768, 1024, 1440]) {
       expect(box!.x + box!.width).toBeLessThanOrEqual(width);
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
-    await page.getByRole("button", { name: /^Model:/ }).click();
-    await page.getByRole("menuitemradio", { name: "GPT-6 Luna", exact: true }).click();
-    await page.getByRole("button", { name: /^Reasoning:/ }).click();
-    const menu = await page.getByRole("menu", { name: "Reasoning", exact: true }).boundingBox();
-    expect(menu!.x).toBeGreaterThanOrEqual(0);
-    expect(menu!.x + menu!.width).toBeLessThanOrEqual(width);
+    for (const choice of [/^Fast/, /^Balanced/, /^High/]) {
+      await page.getByRole("button", { name: /^Model:/ }).click();
+      const menu = await page.getByRole("menu", { name: "Model", exact: true }).boundingBox();
+      expect(menu!.x).toBeGreaterThanOrEqual(0);
+      expect(menu!.x + menu!.width).toBeLessThanOrEqual(width);
+      await page.getByRole("menuitemradio", { name: choice }).click();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    }
   });
 }
 
@@ -126,25 +121,23 @@ for (const scenario of ["length", "network", "stop"] as const) {
   });
 }
 
-test("Fast → Balanced → High → Fast sends only the selected model's supported effort", async ({ page }) => {
+test("Fast, Balanced and High each send only their mode; the client never names a provider or a reasoning effort", async ({ page }) => {
   await mockStream(page, "complete");
   await page.goto("/preview/chat-core");
-  const choices = [["MiniMax M2.7", "Fast"], ["DeepSeek V4.1 Flash", "Balanced"], ["GPT-6 Luna", "Reasoning"], ["MiniMax M2.7", "Fast"]];
+  const choices = [["Fast", "Fast"], ["Balanced", "Balanced"], ["High", "High"], ["Fast", "Fast"]];
   for (const [label, model] of choices) {
     await page.getByRole("button", { name: /^Model:/ }).click();
-    await page.getByRole("menuitemradio", { name: label, exact: true }).click();
-    if (model === "Reasoning") {
-      await page.getByRole("button", { name: /^Reasoning:/ }).click();
-      await page.getByRole("menuitemradio", { name: /High/ }).click();
-    } else await expect(page.getByRole("button", { name: /^Reasoning:/ })).toBeDisabled();
+    await page.getByRole("menuitemradio", { name: new RegExp("^" + label) }).click();
+    await expect(page.getByRole("button", { name: "Model: " + label, exact: true })).toBeVisible();
     await page.getByRole("textbox", { name: "Message Nibie" }).fill("Explain Room in detail with examples.");
     await page.getByRole("button", { name: "Send message" }).click();
     await expect(page.getByLabel("Response status", { exact: true })).toHaveText("complete");
+    expect(model).toBeTruthy();
   }
   expect(await page.evaluate(() => window.chatRequests)).toEqual([
     { content: "Explain Room in detail with examples.", model: "Fast" },
     { content: "Explain Room in detail with examples.", model: "Balanced" },
-    { content: "Explain Room in detail with examples.", model: "Reasoning", reasoning: "high" },
+    { content: "Explain Room in detail with examples.", model: "High" },
     { content: "Explain Room in detail with examples.", model: "Fast" },
   ]);
 });

@@ -8,7 +8,7 @@ Ships:
 
 - Public landing, docs, and privacy pages, with Open Graph metadata when `NEXT_PUBLIC_APP_URL` is set
 - Email sign-in and sign-up, Google sign-in, auth callback, and sign-out everywhere
-- Chat: new chat, streaming, Stop, Retry, Regenerate, edit and resend of the latest user message, model modes, reasoning effort, refresh, and conversation restore
+- Chat: new chat, streaming, Stop, Retry, Regenerate, edit and resend of the latest user message, the Fast / Balanced / High mode picker, refresh, and conversation restore
 - Archive and restore for conversations
 - Context Engine: explicit profile, Room instructions and Room Brief, room Pins, explicitly selected room-file text, and recent messages. The thread-summary slot stays empty. Pin and file text are untrusted data and cannot override the current request
 - Rooms: create, rename, instructions, editable brief, new thread, move thread, delete Room. Deleting a Room detaches its threads; it does not delete them
@@ -52,11 +52,8 @@ Application runtime:
 - `NEXT_PUBLIC_APP_URL` — HTTPS origin in production. Required. No credentials in the URL
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` or `NEXT_PUBLIC_SUPABASE_ANON_KEY` — publishable key only. Boot rejects a service-role key
-- `AI_PROVIDER` — `openai-compatible`
-- `AI_BASE_URL`
-- `AI_API_KEY`
-- At least one of `AI_MODEL_FAST`, `AI_MODEL_BALANCED`, `AI_MODEL_REASONING`
-- `AI_REASONING_MODES` — optional comma-separated logical modes (`Fast`, `Balanced`, `Reasoning`) that may receive a reasoning effort
+- `SUMOPOD_API_KEY`, `SUMOPOD_BASE_URL` — the gateway behind Fast (DeepSeek V4.1 Flash); the earlier `AI_API_KEY` / `AI_BASE_URL` names still work as a fallback
+- `OPENAI_API_KEY` — OpenAI direct, behind Balanced (GPT-6 Luna) and High (GPT-6.1 Sol); without it only Fast is offered. Optional: `OPENAI_BASE_URL` (HTTPS), `SUMOPOD_MODEL_FAST`, `OPENAI_MODEL_BALANCED`, `OPENAI_MODEL_HIGH`, `OPENAI_BALANCED_REASONING_EFFORT` and `OPENAI_HIGH_REASONING_EFFORT` (`low`, `medium` or `high`; High always sends one and defaults to `high`, Balanced only when set)
 
 Migrations only:
 
