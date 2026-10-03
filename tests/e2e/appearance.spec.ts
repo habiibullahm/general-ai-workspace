@@ -5,6 +5,12 @@ import { expect, test, type Page } from "@playwright/test";
 const theme = (page: Page) => page.evaluate(() => document.documentElement.getAttribute("data-theme"));
 const background = (page: Page) => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
 
+// Reasoning effort is enabled only for a model that supports it (GPT-6 Luna in the preview); the model stays a separate choice.
+async function chooseReasoningModel(page: Page) {
+  await page.getByRole("button", { name: /^Model:/ }).click();
+  await page.getByRole("menuitemradio", { name: "GPT-6 Luna", exact: true }).click();
+}
+
 async function openThemeSettings(page: Page) {
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
@@ -107,6 +113,7 @@ test.describe("brand", () => {
 test.describe("reasoning effort picker (mock workspace)", () => {
   test("offers only Low, Medium, High and is keyboard operable", async ({ page }) => {
     await page.goto("/preview");
+    await chooseReasoningModel(page);
     const reasoning = page.getByRole("button", { name: "Reasoning: Medium", exact: true });
     await expect(reasoning).toHaveText("Medium");
     await expect(reasoning).toHaveAttribute("aria-haspopup", "menu");
@@ -128,6 +135,7 @@ test.describe("reasoning effort picker (mock workspace)", () => {
 
   test("keeps a selected reasoning level through refresh", async ({ page }) => {
     await page.goto("/preview");
+    await chooseReasoningModel(page);
     const reasoning = page.getByRole("button", { name: "Reasoning: Medium", exact: true });
     await expect(reasoning).toBeEnabled();
     await reasoning.click();
@@ -136,6 +144,7 @@ test.describe("reasoning effort picker (mock workspace)", () => {
     await expect(page.getByRole("button", { name: "Reasoning: Low", exact: true })).toBeVisible();
     expect(await page.evaluate(() => localStorage.getItem("nibie-reasoning"))).toBe("low");
     await page.reload();
+    await chooseReasoningModel(page);
     await expect(page.getByRole("button", { name: "Reasoning: Low", exact: true })).toBeVisible();
   });
 });
@@ -151,6 +160,7 @@ test.describe("layout has no horizontal overflow", () => {
         if (width <= 760) await page.getByRole("button", { name: "Open conversation menu" }).click();
         await page.getByRole("button", { name: "Debouncing a search box", exact: true }).first().click();
         await expect(page.locator(".code-block")).toBeVisible();
+        await chooseReasoningModel(page);
         await page.getByRole("button", { name: /^Reasoning:/ }).click();
         const menu = await page.locator(".composer-menu-list").boundingBox();
         expect(menu!.x).toBeGreaterThanOrEqual(0);
@@ -194,7 +204,8 @@ test.describe("conversation scrolling", () => {
     await page.getByRole("button", { name: "Debouncing a search box", exact: true }).first().click();
     await expect(page.locator(".code-block")).toBeVisible();
     await page.evaluate(() => { document.querySelector(".conversation-scroll")!.scrollTop = 0; });
-    // Unrelated updates (opening a menu, changing reasoning effort) must not move the reader.
+    // Unrelated updates (opening a menu, changing model or reasoning effort) must not move the reader.
+    await chooseReasoningModel(page);
     await page.getByRole("button", { name: /^Reasoning:/ }).click();
     await page.getByRole("menuitemradio", { name: /Low/ }).click();
     expect(await page.evaluate(() => document.querySelector(".conversation-scroll")!.scrollTop)).toBe(0);
