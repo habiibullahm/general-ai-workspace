@@ -11,7 +11,7 @@ import { readOpenAiSse } from "@/lib/ai/sse";
 import { buildContext } from "@/lib/context/build-context";
 import { CONTEXT_POLICY_VERSION } from "@/lib/context/context-policy";
 import type { RoomContextInput } from "@/lib/context/room-context";
-import { roomContextFromRows, type RoomBriefRow } from "@/lib/rooms/map";
+import { roomContextFromRows, type PinContextRow, type RoomBriefRow } from "@/lib/rooms/map";
 import { loadOwnerPreferences } from "@/lib/preferences/store";
 
 export const runtime = "nodejs";
@@ -71,12 +71,13 @@ async function respond(request: Request) {
   if (!conversation) return NextResponse.json({ error: "Conversation unavailable." }, { status: 404 });
   let room: RoomContextInput | null = null;
   if (conversation.room_id) {
-    const [{ data: roomRow, error: roomError }, { data: briefRow, error: briefError }] = await Promise.all([
+    const [{ data: roomRow, error: roomError }, { data: briefRow, error: briefError }, { data: pinRows, error: pinError }] = await Promise.all([
       supabase.from("rooms").select("name,instructions").eq("id", conversation.room_id).maybeSingle(),
       supabase.from("room_briefs").select("goal,current_focus,important_decisions,open_questions,next_step").eq("room_id", conversation.room_id).maybeSingle(),
+      supabase.from("pins").select("id,title,content,updated_at").eq("room_id", conversation.room_id).order("updated_at", { ascending: false }).order("id", { ascending: true }),
     ]);
-    if (roomError || briefError) return NextResponse.json({ error: safeError }, { status: 503 });
-    room = roomContextFromRows(roomRow, briefRow as RoomBriefRow | null);
+    if (roomError || briefError || pinError) return NextResponse.json({ error: safeError }, { status: 503 });
+    room = roomContextFromRows(roomRow, briefRow as RoomBriefRow | null, pinRows as PinContextRow[] | null);
   }
   const mode = requestedModel?.data ?? resolveMode(conversation.selected_model, availableModes);
   if (!mode) return NextResponse.json({ error: safeError }, { status: 503 });
@@ -119,6 +120,7 @@ async function respond(request: Request) {
     context = plan.diagnostics;
     const profile = plan.blocks.some((block) => block.id === "profile" && block.included);
     const roomIncluded = plan.blocks.some((block) => block.id === "room" && block.included);
+    const pinsIncluded = plan.blocks.some((block) => block.id === "pins" && block.included);
     const summary = plan.blocks.some((block) => block.id === "thread_summary" && block.included);
     console.info(JSON.stringify({
       event: "context.built",
@@ -126,6 +128,7 @@ async function respond(request: Request) {
       "context.source.count": plan.blocks.filter((block) => block.included).length,
       "context.profile.included": profile,
       "context.room.included": roomIncluded,
+      "context.pins.included": pinsIncluded,
       "context.summary.included": summary,
       "context.recent_message_count": plan.diagnostics.recentMessageCount,
       "context.estimated_tokens": plan.budget.estimatedTokens,
