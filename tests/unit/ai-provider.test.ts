@@ -19,16 +19,21 @@ describe("OpenAI-compatible provider adapter", () => {
 
   it("adds reasoning_effort only for an explicit effort, never for auto or when omitted", async () => {
     vi.stubEnv("AI_PROVIDER", "openai-compatible"); vi.stubEnv("AI_BASE_URL", "https://provider.invalid/v1"); vi.stubEnv("AI_API_KEY", "test-key");
-    vi.stubEnv("AI_MODEL_REASONING", "reason-model");
+    vi.stubEnv("AI_MODEL_REASONING", "reason-model"); vi.stubEnv("AI_REASONING_MODES", "Reasoning");
     const fetchMock = vi.fn(async () => new Response(new ReadableStream<Uint8Array>({ start(controller) { controller.close(); } }), { status: 200 })); vi.stubGlobal("fetch", fetchMock);
     const sentBody = (call: number) => JSON.parse((fetchMock.mock.calls[call] as unknown as [string, { body: string }])[1].body);
     const messages = [{ role: "user" as const, content: "hello" }];
     await openAiCompatibleProvider.stream("Reasoning", messages, new AbortController().signal);
     await openAiCompatibleProvider.stream("Reasoning", messages, new AbortController().signal, { reasoning: "auto" });
-    await openAiCompatibleProvider.stream("Reasoning", messages, new AbortController().signal, { reasoning: "low" });
+    for (const reasoning of ["low", "medium", "high"] as const) await openAiCompatibleProvider.stream("Reasoning", messages, new AbortController().signal, { reasoning });
     expect(sentBody(0)).not.toHaveProperty("reasoning_effort");
     expect(sentBody(1)).not.toHaveProperty("reasoning_effort");
-    expect(sentBody(2)).toEqual({ model: "reason-model", messages, stream: true, reasoning_effort: "low" });
+    for (const [index, reasoning] of ["low", "medium", "high"].entries()) {
+      expect(sentBody(index + 2)).toEqual({ model: "reason-model", messages, stream: true, reasoning_effort: reasoning });
+    }
+    vi.stubEnv("AI_REASONING_MODES", "");
+    await expect(openAiCompatibleProvider.stream("Reasoning", messages, new AbortController().signal, { reasoning: "high" })).rejects.toThrow("unavailable");
+    expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
   it("fails without calling the provider when the requested mode has no configured model", async () => {

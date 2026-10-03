@@ -27,7 +27,7 @@ describe("logical AI model registry", () => {
 describe("model options offered to the UI", () => {
   it("lists only configured modes, in product order, with the configured model name", () => {
     const options = getModelOptions({ ...base, AI_MODEL_REASONING: "reason-id", AI_MODEL_FAST: "fast-id" });
-    expect(options.models).toEqual([{ id: "Fast", label: "Fast", model: "fast-id" }, { id: "Reasoning", label: "Reasoning", model: "reason-id" }]);
+    expect(options.models).toEqual([{ id: "Fast", label: "Model 1", model: "Model 1" }, { id: "Reasoning", label: "Model 2", model: "Model 2" }]);
   });
 
   it("never includes the provider, its URL or its key", () => {
@@ -55,6 +55,14 @@ describe("model options offered to the UI", () => {
 });
 
 describe("mode resolution and reasoning allowlist", () => {
+  it("offers clean configured names and GPT-6 Luna's verified native reasoning", () => {
+    const env = { ...base, AI_MODEL_FAST: "MiniMax-M2.7-highspeed", AI_MODEL_BALANCED: "deepseek-v4.1-flash:netra", AI_MODEL_REASONING: "gpt-6-luna" };
+    const offered = getModelOptions(env);
+    expect(offered.models.map((model) => model.label)).toEqual(["MiniMax M2.7", "DeepSeek V4.1 Flash", "GPT-6 Luna"]);
+    expect(JSON.stringify(offered)).not.toContain(":netra");
+    expect(offered.reasoningModes).toEqual(["Reasoning"]);
+    expect(getModelOptions({ ...env, AI_REASONING_MODES: "" }).reasoningModes).toEqual([]);
+  });
   it("keeps a saved mode that is available and otherwise falls back to Balanced, Fast, Reasoning", () => {
     expect(resolveMode("Fast", ["Fast", "Balanced"])).toBe("Fast");
     expect(resolveMode("Reasoning", ["Fast", "Balanced"])).toBe("Balanced");

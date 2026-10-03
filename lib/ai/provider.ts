@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { ChatModel } from "@/lib/chat/validation";
-import type { ReasoningEffort } from "@/lib/chat/models";
+import { reasoningAllowed, type ReasoningEffort } from "@/lib/chat/models";
 import { getAiConfig, resolveLogicalModel } from "./registry";
 
 export type ProviderMessage = { role: "system" | "user" | "assistant"; content: string };
@@ -12,6 +12,7 @@ export type ChatProvider = { stream(model: ChatModel, messages: ProviderMessage[
 export const openAiCompatibleProvider: ChatProvider = {
   async stream(logicalModel, messages, signal, options = {}) {
     const config = getAiConfig();
+    if (!reasoningAllowed(options.reasoning ?? "auto", logicalModel, config.reasoningModes)) throw new Error("Reasoning is unavailable for this model.");
     const reasoning = options.reasoning && options.reasoning !== "auto" ? { reasoning_effort: options.reasoning } : {};
     let response: Response;
     try {

@@ -1,7 +1,7 @@
 import "server-only";
 
 import { chatProvider } from "@/lib/ai/provider";
-import { getModelOptions } from "@/lib/ai/registry";
+import { getAiConfig } from "@/lib/ai/registry";
 import { sanitizeModelOutput } from "@/lib/ai/sanitize-model-output";
 import { readOpenAiSse } from "@/lib/ai/sse";
 import { roomBriefSchema, roomDraftSchema } from "@/lib/rooms/validation";
@@ -11,7 +11,8 @@ const overviewSchema = roomDraftSchema.pick({ description: true }).required().ex
   .refine((overview) => overview.description !== null && Object.values(overview.brief).every((value) => value !== null), "Every generated room field must be filled.");
 
 export async function generateRoomOverview(draft: RoomDraft): Promise<RoomOverview> {
-  const mode = getModelOptions().models.find((model) => model.model === "gpt-6-luna")?.id;
+  const configured = getAiConfig().models;
+  const mode = (["Fast", "Balanced", "Reasoning"] as const).find((id) => configured[id] === "gpt-6-luna");
   if (!mode) throw new Error("Room drafting requires gpt-6-luna.");
   const aborter = new AbortController();
   const timeout = setTimeout(() => aborter.abort(), 45_000);

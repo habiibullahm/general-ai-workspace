@@ -14,9 +14,11 @@ test("reasoning effort is sent only when supported and persists without exposing
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await expect(page).toHaveURL((url) => url.pathname === "/chat", { timeout: 20_000 });
     await page.getByRole("button", { name: "New chat", exact: true }).first().click();
+    // Model and reasoning are separate controls; GPT-6 Luna is the configured model that accepts an effort.
+    await page.getByRole("button", { name: "Model: Auto", exact: true }).click();
+    await page.getByRole("menuitemradio", { name: "GPT-6 Luna", exact: true }).click();
     const reasoning = page.getByRole("button", { name: /^Reasoning: High/ });
     await expect(reasoning).toHaveText("High");
-    await expect(page.getByRole("button", { name: /^Model:/ })).toHaveCount(0);
     const supported = await reasoning.isEnabled();
     if (supported) {
       await reasoning.click();
@@ -35,6 +37,7 @@ test("reasoning effort is sent only when supported and persists without exposing
     await expect(page.getByRole("button", { name: "Regenerate", exact: true })).toBeVisible({ timeout: 120_000 });
     conversationUrl = page.url();
     await page.reload();
+    await expect(page.getByRole("button", { name: /^Model:/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /^Reasoning: High/ })).toHaveText("High");
     expect(await page.evaluate(() => localStorage.getItem("nibie-reasoning"))).toBe("high");
   } finally {

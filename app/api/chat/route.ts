@@ -2,13 +2,13 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getAuthenticatedUser } from "@/lib/auth/get-user";
 import { schemaUnavailable } from "@/lib/chat/schema-error";
-import { modelSchema, validateConversationId, validateMessage } from "@/lib/chat/validation";
-import { defaultReasoningEffort, reasoningAllowed, reasoningEffortSchema, resolveMode } from "@/lib/chat/models";
+import { validateConversationId, validateMessage } from "@/lib/chat/validation";
+import { defaultReasoningEffort, modelChoiceSchema, reasoningAllowed, reasoningEffortSchema, resolveMode } from "@/lib/chat/models";
 import { chatProvider } from "@/lib/ai/provider";
 import { toProviderMessages } from "@/lib/ai/provider-messages";
 import { contextCapabilitiesFor, getModelOptions } from "@/lib/ai/registry";
 import { createReasoningStreamFilter, sanitizeModelOutput } from "@/lib/ai/sanitize-model-output";
-import { readOpenAiSse } from "@/lib/ai/sse";
+import { ProviderStreamError, readOpenAiSse } from "@/lib/ai/sse";
 import { buildContext } from "@/lib/context/build-context";
 import { CONTEXT_POLICY_VERSION } from "@/lib/context/context-policy";
 import type { FileContextInput } from "@/lib/context/context-types";
@@ -31,14 +31,14 @@ function event(type: string, data: unknown) { return `event: ${type}\ndata: ${JS
 
 export async function POST(request: Request) {
   const requestId = requestIdFrom(request);
-  try { return await respond(request, requestId); }
+  try { return await respond(request, requestId, Date.now()); }
   catch {
     logError("chat.response.failed", { requestId, stage: "request", code: operationalCodes.requestFailed });
     return NextResponse.json({ error: safeError }, { status: 503 });
   }
 }
 
-async function respond(request: Request, requestId: string) {
+async function respond(request: Request, requestId: string, requestStartedAt: number) {
   const supabase = await createSupabaseServerClient();
   // The session comes from the verified access token (no Auth round trip); row-level security still scopes every query below to its owner.
   // A missing session does not emit chat.response.started. Operators treat that absence as an auth or save-path miss.
@@ -54,14 +54,14 @@ async function respond(request: Request, requestId: string) {
   const parsedMessageId = validateConversationId(value?.userMessageId);
   const selectedFiles = parseSelectedFileIds(value?.fileIds, MAX_FILES_PER_MESSAGE);
   // The client may name a mode and a reasoning effort, but only from fixed vocabularies; neither is ever a provider model id.
-  const requestedModel = value?.model === undefined ? undefined : modelSchema.safeParse(value.model);
+  const requestedModel = value?.model === undefined ? undefined : modelChoiceSchema.safeParse(value.model);
   const requestedReasoning = value?.reasoning === undefined ? undefined : reasoningEffortSchema.safeParse(value.reasoning);
   if (!selectedFiles.ok || !parsedId.success || !parsedMessageId.success || (value.regenerate !== undefined && typeof value.regenerate !== "boolean") || requestedModel?.success === false || requestedReasoning?.success === false) return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   const regenerate = value.regenerate === true;
   // Only modes that are configured on the server can be used, whether the client asked for one or the conversation has one saved.
   const { models: availableModels, reasoningModes } = getModelOptions();
   const availableModes = availableModels.map((option) => option.id);
-  if (requestedModel && !availableModes.includes(requestedModel.data)) return NextResponse.json({ error: "That model isn't available." }, { status: 400 });
+  if (requestedModel && requestedModel.data !== "Auto" && !availableModes.includes(requestedModel.data)) return NextResponse.json({ error: "That model isn't available." }, { status: 400 });
 
   // The conversation, the user message and the recent context only depend on the ids in the request, so they are read together
   // (RLS hides other owners' rows from all three); the message context is trimmed to this message below.
@@ -104,7 +104,7 @@ async function respond(request: Request, requestId: string) {
       return { name: row.original_name, text: row.extracted_text };
     });
   }
-  const mode = requestedModel?.data ?? resolveMode(conversation.selected_model, availableModes);
+  const mode = requestedModel?.data && requestedModel.data !== "Auto" ? requestedModel.data : resolveMode(conversation.selected_model, availableModes);
   if (!mode) return NextResponse.json({ error: safeError }, { status: 503 });
   const reasoning = requestedReasoning?.data ?? defaultReasoningEffort;
   if (!reasoningAllowed(reasoning, mode, reasoningModes)) return NextResponse.json({ error: "Reasoning isn't available for this model." }, { status: 400 });
@@ -132,7 +132,11 @@ async function respond(request: Request, requestId: string) {
 
   const persist = async (content: string, status: "complete" | "interrupted" | "error") => {
     try {
-      const { data, error } = await supabase.from("messages").update({ content, status }).eq("id", assistant.id).eq("status", "streaming").select("id").maybeSingle();
+      const update = supabase.from("messages").update({ content, status }).eq("id", assistant.id);
+      // Explicit Stop releases the active-row guard before this content write finishes.
+      // A late finalizer can only touch its own row, never complete a stopped generation.
+      const guarded = status === "interrupted" ? update.in("status", ["streaming", "interrupted"]) : update.eq("status", "streaming");
+      const { data, error } = await guarded.select("id").maybeSingle();
       if (error || !data) {
         logError("chat.persistence.failed", { requestId, code: operationalCodes.assistantPersistFailed, stage: "persist", status });
         return false;
@@ -193,7 +197,12 @@ async function respond(request: Request, requestId: string) {
   const onRequestAbort = () => { clientCancelled = true; aborter.abort(); };
   request.signal.addEventListener("abort", onRequestAbort, { once: true });
   if (request.signal.aborted) onRequestAbort();
-  const timeout = setTimeout(() => aborter.abort(), 120_000);
+  let providerTimedOut = false;
+  const timeout = setTimeout(() => { providerTimedOut = true; aborter.abort(); }, 120_000);
+  const providerStartedAt = Date.now();
+  let providerTtftMs: number | null = null;
+  let finishReason = "unspecified";
+  const timeoutError = "The provider took too long to finish this response. Please try again.";
   let responseStream: ReadableStream<Uint8Array>;
   try { responseStream = await chatProvider.stream(mode, prompt, aborter.signal, { reasoning }); }
   catch (error) {
@@ -202,15 +211,17 @@ async function respond(request: Request, requestId: string) {
     else logError("chat.response.failed", { requestId, durationMs: durationMs(), ...providerFailureFields(error) });
     try { await persist(clientCancelled ? "Response stopped." : "Response unavailable.", clientCancelled ? "interrupted" : "error"); }
     finally { clearTimeout(timeout); request.signal.removeEventListener("abort", onRequestAbort); }
-    return NextResponse.json({ error: safeError }, { status: 502 });
+    return NextResponse.json({ error: providerTimedOut ? timeoutError : safeError }, { status: providerTimedOut ? 504 : 502 });
   }
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const filter = createReasoningStreamFilter();
       let output = ""; let completed = false; let sealed = false;
+      let interruptedSave: Promise<boolean> | undefined;
       const publish = (text: string) => {
         if (!text) return;
+        if (providerTtftMs === null) providerTtftMs = Date.now() - providerStartedAt;
         output += text;
         if (!clientCancelled) controller.enqueue(encoder.encode(event("delta", { text })));
       };
@@ -229,13 +240,14 @@ async function respond(request: Request, requestId: string) {
       const save = async (status: "complete" | "interrupted" | "error") => {
         seal();
         const content = output || (status === "interrupted" ? "Response stopped." : "Response unavailable.");
+        if (status === "interrupted") return interruptedSave ??= persist(content, status);
         return persist(content, status);
       };
       try {
         if (clientCancelled) throw new Error("Response aborted.");
         controller.enqueue(encoder.encode(event("start", { id: assistant.id, position: assistant.position, context })));
         for await (const item of readOpenAiSse(responseStream, aborter.signal)) {
-          if (item.type === "done") { completed = true; break; }
+          if (item.type === "done") { completed = true; finishReason = item.finishReason ?? "unspecified"; break; }
           publish(filter.push(item.text));
         }
         seal();
@@ -257,15 +269,22 @@ async function respond(request: Request, requestId: string) {
           logError("chat.response.failed", { requestId, stage: "stream", code: operationalCodes.aiProviderFailed, status: "error", durationMs: durationMs() });
           controller.enqueue(encoder.encode(event("error", { error: safeError })));
         }
-      } catch {
+      } catch (error) {
+        if (error instanceof ProviderStreamError) finishReason = error.finishReason;
+        else if (providerTimedOut) finishReason = "timeout";
         const interrupted = clientCancelled || request.signal.aborted;
         let saved = false;
         try { saved = await save(interrupted ? "interrupted" : "error"); } catch { logError("chat.persistence.failed", { requestId, code: operationalCodes.assistantPersistFailed, stage: "persist" }); }
         if (interrupted) logWarn("chat.response.interrupted", { requestId, status: "interrupted", durationMs: durationMs() });
         else logError("chat.response.failed", { requestId, stage: "stream", code: operationalCodes.aiProviderFailed, status: "error", durationMs: durationMs() });
-        if (!interrupted) controller.enqueue(encoder.encode(event("error", { error: safeError })));
+        if (!interrupted) controller.enqueue(encoder.encode(event("error", { error: error instanceof ProviderStreamError ? error.message : providerTimedOut ? timeoutError : safeError })));
         else if (!clientCancelled) controller.enqueue(encoder.encode(saved ? event("status", { status: "interrupted" }) : event("error", { error: safeError })));
       } finally {
+        logInfo("chat.response.metrics", {
+          requestId, providerTtftMs, generationDurationMs: Date.now() - providerStartedAt,
+          totalDurationMs: Date.now() - requestStartedAt, finishReason,
+          outputChars: output.length, streamCompleted: completed,
+        });
         clearTimeout(timeout);
         aborter.abort();
         request.signal.removeEventListener("abort", onRequestAbort);

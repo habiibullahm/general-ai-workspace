@@ -19,6 +19,40 @@ describe("POST /api/chat", () => {
   beforeEach(() => { preferenceResult = { data: null, error: null }; createClient.mockReset(); stream.mockReset(); modelOptions.mockReset().mockReturnValue(allModes); contextCapabilities.mockReset().mockReturnValue({ contextWindowTokens: 16_384, maxOutputTokens: 2_048 }); claim.mockReset().mockReturnValue(query({ data: assistant, error: null })); });
   afterEach(() => vi.useRealTimers());
 
+  it.each(["stop", "length", "content_filter"])("finalizes %s explicitly, with sanitized persistence", async (reason) => {
+    const writes: unknown[] = [];
+    readyClient(writes);
+    stream.mockResolvedValue(providerChunks(["<thi", "nk>private</think>Complete visible answer."], reason));
+    const response = await POST(validRequest());
+    if (reason === "stop") {
+      expect((await Array.fromAsync(readChatSse(response.body!))).slice(-2)).toEqual([{ type: "status", status: "complete" }, { type: "done" }]);
+    } else {
+      await expect(Array.fromAsync(readChatSse(response.body!))).rejects.toThrow(reason === "length" ? "output limit" : "content filter");
+    }
+    expect(writes).toContainEqual({ content: "Complete visible answer.", status: reason === "stop" ? "complete" : "error" });
+    expect(JSON.stringify(writes)).not.toContain("private");
+  });
+
+  it.each(["Auto", "Reasoning"])("routes model choice %s on the server", async (model) => {
+    readyClient([]);
+    stream.mockResolvedValue(providerChunks(["Done."], "stop"));
+    const request = validRequest();
+    const response = await POST(new Request(request.url, { method: "POST", headers: request.headers, body: JSON.stringify({ ...await request.json(), model }) }));
+    await response.text();
+    expect(stream.mock.calls[0][0]).toBe(model === "Auto" ? "Balanced" : "Reasoning");
+  });
+
+  it.each(["low", "medium", "high"])("keeps %s effort separate from response detail on retry", async (reasoning) => {
+    readyClient([]);
+    stream.mockResolvedValue(providerChunks(["Done."], "stop"));
+    const request = validRequest();
+    const response = await POST(new Request(request.url, { method: "POST", headers: request.headers, body: JSON.stringify({ ...await request.json(), model: "Reasoning", reasoning, regenerate: true }) }));
+    await response.text();
+    expect(stream.mock.calls[0][3]).toEqual({ reasoning });
+    expect(stream.mock.calls[0][1][0].content).toBe(contextPolicyFor("Reasoning"));
+    expect(claim).toHaveBeenCalledWith("regenerate_assistant_message", expect.any(Object));
+  });
+
   it("returns 401 before reading request data or invoking a provider", async () => {
     createClient.mockResolvedValue({ auth: { getClaims: async () => ({ data: null, error: new Error("no session") }) } });
     const response = await POST(new Request("http://localhost/api/chat", { method: "POST", body: "{}" }));
@@ -143,7 +177,7 @@ describe("POST /api/chat", () => {
       expect(built?.requestId).toBe(started?.requestId);
       expect(completed?.requestId).toBe(started?.requestId);
       expect(built).toMatchObject({ profileIncluded: false, roomIncluded: false, policyVersion: "context-policy-v1", truncated: false });
-      expect(built).not.toHaveProperty("pinsIncluded");
+      expect(built).toMatchObject({ pinsIncluded: false, fileIncluded: false, fileCount: 0 });
       expect(built).not.toHaveProperty("filesIncluded");
       const serialized = JSON.stringify([...info.mock.calls, ...error.mock.calls]);
       expect(serialized).not.toContain("hello");
@@ -661,9 +695,10 @@ function sseBody(text: string) {
   return providerChunks([text]);
 }
 
-function providerChunks(parts: string[]) {
+function providerChunks(parts: string[], finishReason?: string) {
   return new ReadableStream<Uint8Array>({ start(controller) {
     for (const part of parts) controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: part } }] })}\n\n`));
+    if (finishReason) controller.enqueue(encoder.encode("data: " + JSON.stringify({ choices: [{ delta: {}, finish_reason: finishReason }] }) + "\n\n"));
     controller.enqueue(encoder.encode("data: [DONE]\n\n"));
     controller.close();
   } });

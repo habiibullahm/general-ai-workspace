@@ -27,17 +27,22 @@ test.describe("settings shell", () => {
   test("saves a new-chat default without changing the open conversation", async ({ page }) => {
     await page.goto("/preview");
     await page.getByRole("button", { name: "Debouncing a search box", exact: true }).click();
+    await page.getByRole("button", { name: "Model: Auto", exact: true }).click();
+    await page.getByRole("menuitemradio", { name: "GPT-6 Luna", exact: true }).click();
     await expect(page.getByRole("button", { name: "Reasoning: Medium", exact: true })).toBeEnabled();
 
     await openSettings(page);
     await dialog(page).getByRole("tab", { name: "Nibie", exact: true }).click();
-    await dialog(page).getByRole("radio", { name: "Fast", exact: true }).click();
+    await dialog(page).getByRole("radio", { name: "MiniMax M2.7", exact: true }).click();
     await expect(dialog(page).getByRole("status")).toHaveText("Saved");
     await page.keyboard.press("Escape");
 
+    // The open conversation keeps its own model; a new chat follows the saved default (MiniMax M2.7, no explicit effort).
+    await expect(page.getByRole("button", { name: "Model: GPT-6 Luna", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Reasoning: Medium", exact: true })).toBeEnabled();
     await page.getByRole("button", { name: "New chat", exact: true }).first().click();
     await expect(page.getByRole("heading", { name: "What’s on your mind?" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Model: Auto", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: /^Reasoning: Medium \(Reasoning effort is unavailable/ })).toBeDisabled();
   });
 });

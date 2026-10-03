@@ -42,7 +42,7 @@ export type RoomSummary = {
   brief: RoomBriefSummary | null;
   pins: PinSummary[];
 };
-export type PersistedMessage = { id: string; role: "user" | "assistant"; content: string; position: number; status?: "complete" | "streaming" | "interrupted" | "error"; created_at?: string };
+export type PersistedMessage = { id: string; role: "user" | "assistant"; content: string; position: number; status?: "complete" | "streaming" | "interrupted" | "error"; created_at?: string; terminationReason?: "user_stopped" };
 
 export async function getChatWorkspaceData(conversationId: unknown) {
   const supabase = await createSupabaseServerClient();
