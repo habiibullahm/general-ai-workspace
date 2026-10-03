@@ -9,6 +9,9 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  outputFileTracingIncludes: {
+    "/changelog": ["./CHANGELOG.md"],
+  },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
