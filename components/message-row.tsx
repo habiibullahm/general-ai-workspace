@@ -55,7 +55,7 @@ export const MessageRow = memo(function MessageRow({ message, initial, isLast, i
   if (message.role === "assistant") {
     const waiting = message.status === "streaming" && !message.content;
     const canCopy = message.status !== "streaming" && message.status !== "error" && Boolean(message.content) && !placeholderResponses.has(message.content);
-    const canRetry = canMutate && isLast && message.status === "error";
+    const canRetry = canMutate && isLast && (message.status === "error" || message.status === "interrupted");
     const showWorkbench = Boolean(onContinueInWorkbench) && canContinueInWorkbench(message);
     return <article className="message-row assistant">
       <div className="message-content assistant">

@@ -36,6 +36,7 @@ import type { ContextDiagnostics } from "@/lib/context/context-types";
 import { followAfterSending, followStreamedContent, isNearBottom, trackNearBottom } from "@/lib/chat/scroll";
 import { readChatSse } from "@/lib/ai/sse";
 import { readRoomFileSelection, rememberRoomFileSelection } from "@/lib/files/selection-memory";
+import { abortLiveChatStream, finishLiveChatStream, liveChatConversationId, shouldStopLiveChatOnLeave, startLiveChatStream } from "@/lib/chat/live-stream";
 import { activeAssistantId, classifyStreamFailure, hasActiveGeneration, isRecoverySettled, isRegressiveSnapshot, latestReplyFailed, needsServerCheck, recoveryPollAction, recoveryPollMs, unseenGenerationSettled } from "@/lib/chat/recovery";
 
 type Conversation = ConversationSummary & { messages: PersistedMessage[] };
@@ -241,7 +242,7 @@ export function ChatWorkspace({ email, metadataName = null, initialData, preview
     }
   }
 
-  useEffect(() => () => streamController.current?.abort(), []);
+  useEffect(() => () => { if (shouldStopLiveChatOnLeave(window.location.pathname)) abortLiveChatStream(); }, []);
   useEffect(() => { if (drafting) composerRef.current?.focus(); }, [drafting, selectedRoomId]);
   useEffect(() => subscribeChatPreferences(() => {
     autoFollowRef.current = readChatFlag("autoFollow");
@@ -343,8 +344,9 @@ export function ChatWorkspace({ email, metadataName = null, initialData, preview
   }, [activeId, availableModes, savedPreferences.defaultModel]);
 
   const openConversation = useStableCallback((id: string | null) => {
-    if (busy.current && !streamController.current) return;
-    streamController.current?.abort();
+    if (busy.current && !streamController.current && liveChatConversationId() !== id) return;
+    // Opening the thread that is already replying must not mark that reply stopped.
+    if (id !== liveChatConversationId()) abortLiveChatStream();
     setNotice(""); setDrawerOpen(false); setEditingId(null); setRecovery(null); setContextDiagnostics(null); setPendingRoomId(null); setPendingDraft(false); pinLatestRef.current = true;
     const item = shownConversations.find((conversation) => conversation.id === id);
     if (item) {
@@ -366,8 +368,7 @@ export function ChatWorkspace({ email, metadataName = null, initialData, preview
     openConversation(null);
   });
   const openRoom = useStableCallback((id: string) => {
-    if (busy.current && !streamController.current) return;
-    streamController.current?.abort();
+    if (busy.current && !streamController.current && !liveChatConversationId()) return;
     setNotice(""); setDrawerOpen(false); setEditingId(null); setRecovery(null); setContextDiagnostics(null);
     setPendingId(null); setPendingRoomId(id); setPendingDraft(false); pinLatestRef.current = true;
     if (preview) setPreviewActiveId(null);
@@ -383,7 +384,7 @@ export function ChatWorkspace({ email, metadataName = null, initialData, preview
     requestAnimationFrame(() => composerRef.current?.focus());
   });
   const conversationsDeleted = useStableCallback(() => {
-    streamController.current?.abort();
+    abortLiveChatStream();
     busy.current = false;
     setSending(false);
     setStreaming(false);
@@ -402,7 +403,7 @@ export function ChatWorkspace({ email, metadataName = null, initialData, preview
 
   // Streams one assistant response for a saved user message. The caller owns the busy guard, which is released here.
   async function generate(id: string, userMessageId: string, options: GenerateOptions = {}) {
-    const controller = new AbortController();
+    const controller = startLiveChatStream(id);
     let assistantId: string | null = null;
     let httpStatus: number | undefined;
     let buffer = "";
@@ -451,7 +452,7 @@ export function ChatWorkspace({ email, metadataName = null, initialData, preview
         setNotice(failureNotice);
         router.refresh();
       }
-    } finally { clearPlaceholder(); if (flushTimer) clearTimeout(flushTimer); if (streamController.current === controller) streamController.current = null; busy.current = false; setSending(false); setStreaming(false); }
+    } finally { clearPlaceholder(); if (flushTimer) clearTimeout(flushTimer); finishLiveChatStream(controller); if (streamController.current === controller) streamController.current = null; busy.current = false; setSending(false); setStreaming(false); }
   }
   const submitMessage = useStableCallback(async (content: string) => {
     if (!content || busy.current || recovery) return;
@@ -714,7 +715,7 @@ export function ChatWorkspace({ email, metadataName = null, initialData, preview
   const openSettings = useStableCallback(() => { setDrawerOpen(false); setSettingsSection("general"); setSettingsOpen(true); });
   const editProfile = useStableCallback(() => { setDrawerOpen(false); setSettingsSection("profile"); setSettingsOpen(true); });
   const closeSettings = useStableCallback(() => setSettingsOpen(false));
-  const stopStream = useStableCallback(() => streamController.current?.abort());
+  const stopStream = useStableCallback(() => abortLiveChatStream());
   const openingWorkbench = useRef(false);
   const [workbenchPending, setWorkbenchPending] = useState(false);
   const continueInWorkbench = useStableCallback(async (message: PersistedMessage) => {
