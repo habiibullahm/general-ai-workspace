@@ -2,6 +2,7 @@
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getAuthenticatedUser } from "@/lib/auth/get-user";
+import { schemaUnavailable } from "@/lib/chat/schema-error";
 import { modelSchema, validateConversationId, validateMessage, validateTitle, type ChatModel } from "@/lib/chat/validation";
 import { getModelOptions } from "@/lib/ai/registry";
 
@@ -28,12 +29,21 @@ function failure<T>(): ChatActionResult<T> {
 }
 
 async function insertConversation(supabase: Supabase, userId: string, model: ChatModel, roomId: string | null) {
-  return supabase.from("conversations").insert({
+  const inserted = await supabase.from("conversations").insert({
     user_id: userId,
     title: "New chat",
     selected_model: model,
     ...(roomId ? { room_id: roomId } : {}),
   }).select("id,title,selected_model,room_id,created_at,updated_at").single();
+  // A general thread does not need Rooms. Retry without room_id when that column is not in the database yet.
+  if (!schemaUnavailable(inserted.error) || roomId) return inserted;
+  const legacy = await supabase.from("conversations").insert({
+    user_id: userId,
+    title: "New chat",
+    selected_model: model,
+  }).select("id,title,selected_model,created_at,updated_at").single();
+  if (legacy.error || !legacy.data) return legacy;
+  return { data: { ...(legacy.data as unknown as Omit<ConversationRow, "room_id">), room_id: null }, error: null };
 }
 
 // Returns the saved message, or the safe error message to show.
@@ -184,6 +194,34 @@ export async function deleteConversationAction(id: unknown): Promise<ChatActionR
     const { data, error } = await supabase.from("conversations").delete().eq("id", parsedId.data).select("id").maybeSingle();
     if (error) return failure();
     if (!data) return { error: "That conversation is no longer available." };
+    return {};
+  } catch {
+    return { error: "Your session has expired or the service is unavailable. Please try again." };
+  }
+}
+
+export async function archiveConversationAction(id: unknown): Promise<ChatActionResult> {
+  const parsedId = validateConversationId(id);
+  if (!parsedId.success) return { error: "Choose a valid conversation." };
+  try {
+    const { supabase } = await authenticatedClient();
+    const { data, error } = await supabase.from("conversations").update({ archived_at: new Date().toISOString() }).eq("id", parsedId.data).is("archived_at", null).select("id").maybeSingle();
+    if (error) return failure();
+    if (!data) return { error: "That conversation is no longer available." };
+    return {};
+  } catch {
+    return { error: "Your session has expired or the service is unavailable. Please try again." };
+  }
+}
+
+export async function restoreConversationAction(id: unknown): Promise<ChatActionResult> {
+  const parsedId = validateConversationId(id);
+  if (!parsedId.success) return { error: "Choose a valid conversation." };
+  try {
+    const { supabase } = await authenticatedClient();
+    const { data, error } = await supabase.from("conversations").update({ archived_at: null }).eq("id", parsedId.data).not("archived_at", "is", null).select("id").maybeSingle();
+    if (error) return failure();
+    if (!data) return { error: "That archived conversation is no longer available." };
     return {};
   } catch {
     return { error: "Your session has expired or the service is unavailable. Please try again." };

@@ -6,6 +6,7 @@ import { readOwnerPreferences } from "@/lib/preferences/store";
 import { requestTime } from "@/lib/chat/groups";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 export default async function ChatPage({ searchParams }: { searchParams: Promise<{ conversation?: string }> }) {
   const params = await searchParams;

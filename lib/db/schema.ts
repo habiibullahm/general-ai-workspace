@@ -85,6 +85,7 @@ export const conversations = pgTable(
     roomId: uuid("room_id"),
     title: text("title").notNull().default("New chat"),
     selectedModel: text("selected_model").notNull().default("default"),
+    archivedAt: timestamp("archived_at", { withTimezone: true, mode: "date" }),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   },

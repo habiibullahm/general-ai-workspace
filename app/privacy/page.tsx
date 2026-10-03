@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Brand } from "@/components/brand";
 import { getProductName } from "@/lib/config/branding";
 import { absolutePublicUrl, publicShareImage } from "@/lib/config/public-metadata";
+import { SiteHeader } from "@/components/site-header";
 import { chatPath } from "@/lib/routes";
 import "../landing.css";
 
@@ -43,17 +44,7 @@ export default function PrivacyPage() {
       url: canonical,
     }) }} /> : null}
     <a className="skip-link" href="#content">Skip to content</a>
-    <header className="landing-header">
-      <nav className="landing-nav" aria-label="Primary">
-        <Brand href="/" label="Nibie" />
-        <div className="landing-nav-links">
-          <Link href="/#product">Product</Link>
-          <Link href="/#personalization">Personalization</Link>
-          <Link href="/#privacy">Privacy</Link>
-        </div>
-        <Link className="landing-button" href={chatPath}>Open Nibie</Link>
-      </nav>
-    </header>
+    <SiteHeader currentPage="privacy" />
     <main id="content" className="landing-shell landing-document">
       <h1>Privacy</h1>
       <p>Nibie is a personal AI workspace. These are the account, preference, and conversation controls in the product today.</p>
@@ -89,6 +80,7 @@ export default function PrivacyPage() {
       <nav aria-label="Footer">
         <Link href="/#product">Product</Link>
         <Link href="/privacy" aria-current="page">Privacy</Link>
+        <Link href="/docs">Docs</Link>
         <Link href={chatPath}>Open Nibie</Link>
       </nav>
       <p className="landing-footer-meta">© 2026 Nibie</p>

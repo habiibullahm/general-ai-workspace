@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { schemaUnavailable } from "@/lib/chat/schema-error";
 import { validateConversationId } from "@/lib/chat/validation";
 
 export type ConversationSummary = {
@@ -8,6 +9,7 @@ export type ConversationSummary = {
   title: string;
   selected_model: string;
   room_id: string | null;
+  archived_at?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -31,14 +33,6 @@ export type RoomSummary = {
 };
 export type PersistedMessage = { id: string; role: "user" | "assistant"; content: string; position: number; status?: "complete" | "streaming" | "interrupted" | "error"; created_at?: string };
 
-type QueryError = { code?: string; message?: string } | null;
-
-// PostgREST reports a missing rooms column or table this way. History must still load for a signed-in account.
-function schemaUnavailable(error: QueryError) {
-  if (!error) return false;
-  return error.code === "42703" || error.code === "42P01" || error.code === "PGRST204" || error.code === "PGRST205";
-}
-
 export async function getChatWorkspaceData(conversationId: unknown) {
   const supabase = await createSupabaseServerClient();
   const parsedId = validateConversationId(conversationId);
@@ -56,7 +50,7 @@ export async function getChatWorkspaceData(conversationId: unknown) {
   // The history list and the selected conversation's messages are independent reads, so they run together.
   // RLS scopes both to the signed-in owner; messages are only used when the conversation is in the owner's list.
   const [conversationResult, { data: roomRows, error: roomsError }, { data: briefRows, error: briefsError }, messagesResult] = await Promise.all([
-    orderedConversations("id,title,selected_model,room_id,created_at,updated_at"),
+    orderedConversations("id,title,selected_model,room_id,archived_at,created_at,updated_at"),
     supabase
       .from("rooms")
       .select("id,name,description,instructions,created_at,updated_at")
@@ -67,16 +61,23 @@ export async function getChatWorkspaceData(conversationId: unknown) {
       .select("room_id,goal,current_focus,important_decisions,open_questions,next_step"),
     parsedId.success ? readMessages(parsedId.data) : Promise.resolve(null),
   ]);
-  const legacyConversations = schemaUnavailable(conversationResult.error)
+  const withoutArchive = schemaUnavailable(conversationResult.error)
+    ? await orderedConversations("id,title,selected_model,room_id,created_at,updated_at")
+    : null;
+  const withoutRoom = withoutArchive && schemaUnavailable(withoutArchive.error)
     ? await orderedConversations("id,title,selected_model,created_at,updated_at")
     : null;
-  const conversationRows = legacyConversations && !legacyConversations.error
-    ? ((legacyConversations.data ?? []) as unknown as Omit<ConversationSummary, "room_id">[]).map((row) => ({ ...row, room_id: null }))
-    : conversationResult.data;
-  const conversationsError = legacyConversations ? legacyConversations.error : conversationResult.error;
-  const empty = { conversations: [] as ConversationSummary[], rooms: [] as RoomSummary[], messages: [] as PersistedMessage[], activeId: null };
+  const conversationRows = withoutRoom && !withoutRoom.error
+    ? ((withoutRoom.data ?? []) as unknown as Omit<ConversationSummary, "room_id" | "archived_at">[]).map((row) => ({ ...row, room_id: null, archived_at: null }))
+    : withoutArchive && !withoutArchive.error
+      ? ((withoutArchive.data ?? []) as unknown as Omit<ConversationSummary, "archived_at">[]).map((row) => ({ ...row, archived_at: null }))
+      : conversationResult.data;
+  const conversationsError = withoutRoom ? withoutRoom.error : withoutArchive ? withoutArchive.error : conversationResult.error;
+  const empty = { conversations: [] as ConversationSummary[], archivedConversations: [] as ConversationSummary[], rooms: [] as RoomSummary[], messages: [] as PersistedMessage[], activeId: null };
   if (conversationsError) return { ...empty, error: "Conversation history couldn't be loaded. Refresh to try again." };
-  const conversations = (conversationRows ?? []) as ConversationSummary[];
+  const allConversations = ((conversationRows ?? []) as ConversationSummary[]).map((row) => ({ ...row, room_id: row.room_id ?? null, archived_at: row.archived_at ?? null }));
+  const conversations = allConversations.filter((item) => !item.archived_at);
+  const archivedConversations = allConversations.filter((item) => item.archived_at);
   const roomsMissing = schemaUnavailable(roomsError) || schemaUnavailable(briefsError);
   const briefs = new Map(roomsMissing ? [] : (briefRows ?? []).map((brief) => [brief.room_id, {
     goal: brief.goal,
@@ -88,10 +89,10 @@ export async function getChatWorkspaceData(conversationId: unknown) {
   const rooms: RoomSummary[] = roomsMissing ? [] : (roomRows ?? []).map((room) => ({ ...room, brief: briefs.get(room.id) ?? null }));
   const roomError = !roomsMissing && (roomsError || briefsError) ? "Rooms couldn't be loaded. Refresh to try again." : null;
 
-  const active = parsedId.success ? conversations?.find((item) => item.id === parsedId.data) : undefined;
-  if (!active || !messagesResult) return { conversations: conversations ?? [], rooms, messages: [] as PersistedMessage[], activeId: null, error: roomError };
+  const active = parsedId.success ? conversations.find((item) => item.id === parsedId.data) : undefined;
+  if (!active || !messagesResult) return { conversations, archivedConversations, rooms, messages: [] as PersistedMessage[], activeId: null, error: roomError };
 
-  const loadError = { conversations: conversations ?? [], rooms, messages: [] as PersistedMessage[], activeId: active.id, error: "This conversation couldn't be loaded. Refresh to try again." };
+  const loadError = { conversations, archivedConversations, rooms, messages: [] as PersistedMessage[], activeId: active.id, error: "This conversation couldn't be loaded. Refresh to try again." };
   if (messagesResult.error) return loadError;
   let messages = messagesResult.data ?? [];
 
@@ -103,5 +104,5 @@ export async function getChatWorkspaceData(conversationId: unknown) {
     if (reread.error) return loadError;
     messages = reread.data ?? [];
   }
-  return { conversations: conversations ?? [], rooms, messages, activeId: active.id, error: roomError };
+  return { conversations, archivedConversations, rooms, messages, activeId: active.id, error: roomError };
 }

@@ -4,7 +4,9 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getAuthenticatedUser } from "@/lib/auth/get-user";
 import { validateConversationId } from "@/lib/chat/validation";
 import { parseRoomBrief, parseRoomDraft, parseRoomPatch } from "@/lib/rooms/validation";
-import type { RoomBriefFields } from "@/lib/rooms/types";
+import type { RoomBriefFields, RoomOverview } from "@/lib/rooms/types";
+import type { RoomBriefRow } from "@/lib/rooms/map";
+import { generateRoomOverview } from "@/lib/rooms/generate";
 
 export type RoomActionResult<T = undefined> = { data?: T; error?: string };
 
@@ -34,9 +36,22 @@ function failedRoom(error: { code?: string } | null): RoomActionResult<never> | 
   return { error: saveFailed };
 }
 
-export async function createRoomAction(input: unknown): Promise<RoomActionResult<RoomRow>> {
+export async function draftRoomAction(input: unknown): Promise<RoomActionResult<RoomOverview>> {
   const parsed = parseRoomDraft(input);
   if ("error" in parsed) return { error: parsed.error };
+  try { await authenticatedClient(); } catch { return { error: sessionFailed }; }
+  try { return { data: await generateRoomOverview(parsed.data) }; }
+  catch (error) {
+    console.error("room_draft_failed", error instanceof Error ? error.name : "UnknownError");
+    return { error: "Nibie couldn't draft this room. Try again or set it up manually." };
+  }
+}
+
+export async function createRoomAction(input: unknown, briefInput: unknown = undefined): Promise<RoomActionResult<RoomRow & { brief: RoomBriefRow | null }>> {
+  const parsed = parseRoomDraft(input);
+  if ("error" in parsed) return { error: parsed.error };
+  const parsedBrief = briefInput === undefined ? null : parseRoomBrief(briefInput);
+  if (parsedBrief && "error" in parsedBrief) return { error: parsedBrief.error };
   try {
     const { supabase, user } = await authenticatedClient();
     const { data, error } = await supabase.from("rooms").insert({
@@ -47,7 +62,25 @@ export async function createRoomAction(input: unknown): Promise<RoomActionResult
     const failure = failedRoom(error);
     if (failure) return failure;
     if (!data) return { error: saveFailed };
-    return { data };
+    const brief: RoomBriefRow | null = parsedBrief ? {
+      goal: parsedBrief.data.goal,
+      current_focus: parsedBrief.data.currentFocus,
+      important_decisions: parsedBrief.data.importantDecisions,
+      open_questions: parsedBrief.data.openQuestions,
+      next_step: parsedBrief.data.next,
+    } : null;
+    if (brief) {
+      try {
+        const { error: briefError } = await supabase.from("room_briefs").insert({ room_id: data.id, user_id: user.id, ...brief });
+        if (briefError) throw new Error(saveFailed);
+      } catch {
+        // Match first-chat creation: remove the new, empty room if its brief could not be saved.
+        const { error: cleanupError } = await supabase.from("rooms").delete().eq("id", data.id);
+        if (cleanupError) return { error: "The room was created, but its brief couldn't be saved. Refresh to edit it." };
+        return { error: saveFailed };
+      }
+    }
+    return { data: { ...data, brief } };
   } catch {
     return { error: sessionFailed };
   }

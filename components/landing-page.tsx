@@ -2,6 +2,7 @@ import { ArrowUp, MessageSquare, Plus } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { Brand, BrandMark } from "@/components/brand";
+import { SiteHeader } from "@/components/site-header";
 import { chatPath } from "@/lib/routes";
 
 const useCases: { title: string; copy: string; visual: ReactNode }[] = [
@@ -130,17 +131,7 @@ function WorkspaceFrame() {
 export function LandingPage() {
   return <div className="landing">
     <a className="skip-link" href="#content">Skip to content</a>
-    <header className="landing-header">
-      <nav className="landing-nav" aria-label="Primary">
-        <Brand href="/" label="Nibie" />
-        <div className="landing-nav-links">
-          <a href="#product">Product</a>
-          <a href="#personalization">Personalization</a>
-          <a href="#privacy">Privacy</a>
-        </div>
-        <Link className="landing-button" href={chatPath}>Open Nibie</Link>
-      </nav>
-    </header>
+    <SiteHeader />
     <main id="content">
       <section className="landing-hero landing-shell" aria-labelledby="landing-hero-title">
         <p className="landing-kicker">Personal AI workspace</p>
@@ -249,6 +240,7 @@ export function LandingPage() {
       <nav aria-label="Footer">
         <a href="#product">Product</a>
         <Link href="/privacy">Privacy</Link>
+        <Link href="/docs">Docs</Link>
         <Link href={chatPath}>Open Nibie</Link>
       </nav>
       <p className="landing-footer-meta">© 2026 Nibie</p>
