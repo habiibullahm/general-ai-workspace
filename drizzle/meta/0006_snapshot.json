@@ -1,6 +1,6 @@
 {
-  "id": "2bfc899d-8f45-4a78-8f24-4bdf9729bfc8",
-  "prevId": "559daa31-9365-4358-9fc7-0c6849c3df84",
+  "id": "c4e8a1d2-6b70-4f3a-9e15-8a2d7c0b5e64",
+  "prevId": "2bfc899d-8f45-4a78-8f24-4bdf9729bfc8",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -697,6 +697,147 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.workbench_documents": {
+      "name": "workbench_documents",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "room_id": {
+          "name": "room_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'Untitled'"
+        },
+        "content": {
+          "name": "content",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "workbench_documents_user_updated_idx": {
+          "name": "workbench_documents_user_updated_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "updated_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "workbench_documents_user_room_idx": {
+          "name": "workbench_documents_user_room_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "room_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "workbench_documents_user_id_users_id_fk": {
+          "name": "workbench_documents_user_id_users_id_fk",
+          "tableFrom": "workbench_documents",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "workbench_documents_room_owner_fk": {
+          "name": "workbench_documents_room_owner_fk",
+          "tableFrom": "workbench_documents",
+          "tableTo": "rooms",
+          "columnsFrom": [
+            "room_id",
+            "user_id"
+          ],
+          "columnsTo": [
+            "id",
+            "user_id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "workbench_documents_title_length": {
+          "name": "workbench_documents_title_length",
+          "value": "char_length(\"workbench_documents\".\"title\") between 1 and 120 and \"workbench_documents\".\"title\" = btrim(\"workbench_documents\".\"title\")"
+        },
+        "workbench_documents_content_length": {
+          "name": "workbench_documents_content_length",
+          "value": "char_length(\"workbench_documents\".\"content\") <= 100000"
+        }
+      },
       "isRLSEnabled": false
     }
   },

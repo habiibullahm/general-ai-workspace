@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Menu, Plus } from "lucide-react";
-import { addUserMessageAction, deleteConversationAction, editLastUserMessageAction, moveConversationAction, renameConversationAction, startConversationAction, updateConversationModelAction } from "@/app/actions/chat";
+import { PanelLeftOpen, SquarePen, X } from "lucide-react";
+import { addUserMessageAction, archiveConversationAction, editLastUserMessageAction, moveConversationAction, renameConversationAction, restoreConversationAction, startConversationAction, updateConversationModelAction } from "@/app/actions/chat";
 import { createRoomAction, deleteRoomAction, updateRoomAction, updateRoomBriefAction } from "@/app/actions/rooms";
 import { createWorkbenchFromAssistantAction } from "@/app/actions/workbench";
 import { BrandMark } from "@/components/brand";
@@ -35,7 +35,7 @@ import { readChatSse } from "@/lib/ai/sse";
 import { activeAssistantId, classifyStreamFailure, hasActiveGeneration, isRecoverySettled, isRegressiveSnapshot, latestReplyFailed, needsServerCheck, recoveryPollAction, recoveryPollMs, unseenGenerationSettled } from "@/lib/chat/recovery";
 
 type Conversation = ConversationSummary & { messages: PersistedMessage[] };
-type WorkspaceData = { conversations: ConversationSummary[]; rooms?: RoomSummary[]; messages: PersistedMessage[]; activeId: string | null; error: string | null };
+type WorkspaceData = { conversations: ConversationSummary[]; archivedConversations?: ConversationSummary[]; rooms?: RoomSummary[]; messages: PersistedMessage[]; activeId: string | null; error: string | null };
 type GenerateOptions = { regenerate?: boolean; replaceIds?: string[]; placeholderId?: string };
 // While a response's outcome is unknown, the server is polled until it reports a settled state (see lib/chat/recovery.ts).
 type Recovery = { conversationId: string; assistantId: string | null; baseline: WorkspaceData | undefined };
@@ -71,11 +71,19 @@ export function ChatWorkspace({ email, metadataName = null, initialData, preview
   // Server history captured at delete-all. It stays hidden until a newer server payload arrives, so deleted chats do not flash back.
   const [droppedServerHistory, setDroppedServerHistory] = useState<WorkspaceData | null>(null);
   const conversations = preview ? mockConversations : initialData && initialData === droppedServerHistory ? noConversations : (initialData?.conversations ?? noConversations);
+  const archivedConversations = preview ? noConversations : initialData?.archivedConversations ?? noConversations;
   const [localMessages, setLocalMessages] = useState<Record<string, PersistedMessage[]>>({});
   const [removedIds, setRemovedIds] = useState<string[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const renameDialogRef = useRef<HTMLDialogElement>(null);
+  const renameTitleId = useId();
+  const [renaming, setRenaming] = useState<ConversationSummary | null>(null);
+  const [renameTitle, setRenameTitle] = useState("");
+  const [renameError, setRenameError] = useState("");
+  const [renameSaving, setRenameSaving] = useState(false);
   const [recovery, setRecovery] = useState<Recovery | null>(null);
   const [localConversations, setLocalConversations] = useState<ConversationSummary[]>([]);
+  const [locallyArchivedIds, setLocallyArchivedIds] = useState<string[]>([]);
   const [previewActiveId, setPreviewActiveId] = useState<string | null>(null);
   // The conversation the user just chose, applied immediately while the server renders it. undefined = follow the URL.
   const [pendingId, setPendingId] = useState<string | null | undefined>(undefined);
@@ -112,6 +120,9 @@ export function ChatWorkspace({ email, metadataName = null, initialData, preview
   // Reasoning effort is only sent for modes the server has verified; everywhere else it is Auto (nothing is sent).
   const requestReasoning = reasoningModes.includes(mode) ? reasoning : "auto";
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [desktopSidebarCollapsed, setDesktopSidebarCollapsed] = useState(false);
+  const desktopCollapseButtonRef = useRef<HTMLButtonElement>(null);
+  const desktopExpandButtonRef = useRef<HTMLButtonElement>(null);
   const [sending, setSending] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const busy = useRef(false);
@@ -126,6 +137,14 @@ export function ChatWorkspace({ email, metadataName = null, initialData, preview
   const composerRef = useRef<ComposerHandle>(null);
   const latestData = useRef(initialData);
   useLayoutEffect(() => { latestData.current = initialData; });
+  useEffect(() => {
+    if (!renaming) return;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = renameDialogRef.current;
+    dialog?.showModal();
+    dialog?.querySelector("input")?.focus();
+    return () => { dialog?.close(); previous?.focus(); };
+  }, [renaming]);
   // The conversation follows new content while auto-follow is on and the reader is near the bottom (see lib/chat/scroll.ts).
   const scrollRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);
@@ -137,7 +156,8 @@ export function ChatWorkspace({ email, metadataName = null, initialData, preview
   const closeMenuRef = useRef<HTMLButtonElement>(null);
   const drawerRef = useRef<HTMLElement>(null);
   const shownConversations = useMemo(() => [...new Map([...conversations, ...localConversations].map((item) => [item.id, item])).values()]
-    .sort((left, right) => right.updated_at.localeCompare(left.updated_at) || left.id.localeCompare(right.id)), [conversations, localConversations]);
+    .filter((item) => !locallyArchivedIds.includes(item.id))
+    .sort((left, right) => right.updated_at.localeCompare(left.updated_at) || left.id.localeCompare(right.id)), [conversations, localConversations, locallyArchivedIds]);
   const rooms = useMemo(() => {
     const source = preview ? mockRooms : (serverRooms ?? []);
     const map = new Map(source.map((room) => [room.id, room]));
@@ -519,27 +539,50 @@ export function ChatWorkspace({ email, metadataName = null, initialData, preview
     const revert = (message: string) => { setMode((current) => current === next ? previous : current); setNotice(message); };
     updateConversationModelAction(activeId, next).then((result) => { if (result.error) revert(result.error); }, () => revert("Response mode couldn't be saved."));
   });
-  const rename = useStableCallback(async (item: ConversationSummary) => {
+  const rename = useStableCallback((item: ConversationSummary) => {
     if (preview) return;
-    const title = window.prompt("Conversation title", item.title);
-    if (title === null) return;
-    const result = await renameConversationAction(item.id, title);
-    if (result.error) { setNotice(result.error); return; }
-    setLocalConversations((items) => {
-      const renamed = { ...item, title: title.trim(), updated_at: new Date().toISOString() };
-      return items.some((entry) => entry.id === item.id) ? items.map((entry) => entry.id === item.id ? renamed : entry) : [renamed, ...items];
-    });
-    router.refresh();
+    setRenameTitle(item.title);
+    setRenameError("");
+    setRenaming(item);
   });
-  const remove = useStableCallback(async (item: ConversationSummary) => {
+  const saveRename = useStableCallback(async () => {
+    if (!renaming || renameSaving) return;
+    const title = renameTitle.trim();
+    if (!title) { setRenameError("Enter a conversation title."); return; }
+    setRenameSaving(true);
+    setRenameError("");
+    try {
+      const result = await renameConversationAction(renaming.id, title);
+      if (result.error) { setRenameError(result.error); return; }
+      const item = renaming;
+      setRenaming(null);
+      setLocalConversations((items) => {
+        const renamed = { ...item, title, updated_at: new Date().toISOString() };
+        return items.some((entry) => entry.id === item.id) ? items.map((entry) => entry.id === item.id ? renamed : entry) : [renamed, ...items];
+      });
+      router.refresh();
+    } catch {
+      setRenameError("Conversation title couldn't be saved. Please try again.");
+    } finally {
+      setRenameSaving(false);
+    }
+  });
+  const archive = useStableCallback(async (item: ConversationSummary) => {
     if (busy.current && item.id === activeId) return;
-    if (preview || !window.confirm(`Delete “${item.title}”?`)) return;
-    const result = await deleteConversationAction(item.id);
+    if (preview) return;
+    const result = await archiveConversationAction(item.id);
     if (result.error) { setNotice(result.error); return; }
     forgetLastConversationId(item.id);
+    setLocallyArchivedIds((ids) => ids.includes(item.id) ? ids : [...ids, item.id]);
     setLocalConversations((items) => items.filter((entry) => entry.id !== item.id));
-    setLocalMessages((items) => { const next = { ...items }; delete next[item.id]; return next; });
     if (activeId === item.id) openConversation(null);
+    router.refresh();
+  });
+  const restore = useStableCallback(async (item: ConversationSummary) => {
+    if (preview) return;
+    const result = await restoreConversationAction(item.id);
+    if (result.error) { setNotice(result.error); return; }
+    setLocallyArchivedIds((ids) => ids.filter((id) => id !== item.id));
     router.refresh();
   });
   const moveThread = useStableCallback(async (roomId: string | null) => {
@@ -616,6 +659,8 @@ export function ChatWorkspace({ email, metadataName = null, initialData, preview
     return {};
   });
   const closeDrawer = useStableCallback(() => { setDrawerOpen(false); menuButtonRef.current?.focus(); });
+  const collapseDesktopSidebar = useStableCallback(() => { setDesktopSidebarCollapsed(true); requestAnimationFrame(() => desktopExpandButtonRef.current?.focus()); });
+  const expandDesktopSidebar = useStableCallback(() => { setDesktopSidebarCollapsed(false); requestAnimationFrame(() => desktopCollapseButtonRef.current?.focus()); });
   const openRoomSetup = useStableCallback(() => { setDrawerOpen(false); setCreatingRoom(true); });
   const closeRoomSetup = useStableCallback(() => setCreatingRoom(false));
   const openSettings = useStableCallback(() => { setDrawerOpen(false); setSettingsSection("general"); setSettingsOpen(true); });
@@ -657,13 +702,21 @@ export function ChatWorkspace({ email, metadataName = null, initialData, preview
   const accountName = accountDisplayName({ email, metadataName, preferredName: savedPreferences.preferredName });
   const headerRoomName = (showRoom ? activeRoom?.name : threadRoom?.name) ?? null;
   const roomThreads = activeRoom ? shownConversations.filter((item) => item.room_id === activeRoom.id) : [];
-  const sidebarProps = { conversations: shownConversations, rooms, activeId: history, activeRoomId: showRoom ? selectedRoomId : threadRoom?.id ?? null, busy: controlsDisabled, preview, email, name: accountName, renderedAt, onClose: closeDrawer, onOpen: openConversation, onOpenRoom: openRoom, onCreateRoom: openRoomSetup, onNewChat: newChat, onOpenSettings: openSettings, onRename: rename, onDelete: remove };
+  const sidebarProps = { conversations: shownConversations, archivedConversations, rooms, activeId: history, activeRoomId: showRoom ? selectedRoomId : threadRoom?.id ?? null, busy: controlsDisabled, preview, email, name: accountName, renderedAt, onClose: closeDrawer, onOpen: openConversation, onOpenRoom: openRoom, onCreateRoom: openRoomSetup, onNewChat: newChat, onOpenSettings: openSettings, onRename: rename, onArchive: archive, onRestore: restore };
 
-  return <main className="chat-workspace"><ChatSidebar {...sidebarProps} />{drawerOpen && <div className="mobile-drawer"><button className="drawer-scrim" aria-label="Dismiss menu backdrop" onClick={closeDrawer} /><ChatSidebar {...sidebarProps} mobile drawerRef={drawerRef} closeMenuRef={closeMenuRef} /></div>}
-    <section className="chat-main" aria-label="Chat workspace"><header className="chat-header"><button ref={menuButtonRef} className="icon-button mobile-menu-button" aria-label="Open conversation menu" onClick={() => setDrawerOpen(true)}><Menu size={21} /></button><div className="header-model"><span className="model-dot" /><span>Nibie</span><span className="header-divider">/</span><span className={`header-context${headerRoomName ? " is-room-name" : ""}`}>{headerRoomName ?? "A little room to think"}</span></div>{activeId && rooms.length ? <label className="thread-room"><span>Room</span><select aria-label="Move thread" value={activeConversation?.room_id ?? ""} disabled={controlsDisabled} onChange={(event) => void moveThread(event.target.value || null)}><option value="">General</option>{rooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}</select></label> : null}<button className="header-new-chat" disabled={controlsDisabled} onClick={newChat}><Plus size={16} /><span>New chat</span></button></header>
+  return <main className="chat-workspace">{desktopSidebarCollapsed ? null : <ChatSidebar {...sidebarProps} desktopToggleRef={desktopCollapseButtonRef} onCollapse={collapseDesktopSidebar} />}{drawerOpen && <div className="mobile-drawer"><button className="drawer-scrim" aria-label="Dismiss menu backdrop" onClick={closeDrawer} /><ChatSidebar {...sidebarProps} mobile drawerRef={drawerRef} closeMenuRef={closeMenuRef} /></div>}
+    <section className="chat-main" aria-label="Chat workspace"><header className="chat-header">{desktopSidebarCollapsed ? <button ref={desktopExpandButtonRef} type="button" className="icon-button desktop-sidebar-toggle" aria-label="Expand sidebar" title="Expand sidebar" onClick={expandDesktopSidebar}><PanelLeftOpen size={18} /></button> : null}<button ref={menuButtonRef} className="icon-button mobile-menu-button" aria-label="Open conversation menu" onClick={() => setDrawerOpen(true)}><BrandMark /></button><div className="header-model">{!activeId || !threadRoom ? <span className={`header-context${headerRoomName ? " is-room-name" : ""}`}>{headerRoomName ?? "A little room to think"}</span> : null}</div>{activeId && rooms.length ? <label className="thread-room"><span>Room</span><select aria-label="Move thread" value={activeConversation?.room_id ?? ""} disabled={controlsDisabled} onChange={(event) => void moveThread(event.target.value || null)}><option value="">General</option>{rooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}</select></label> : null}<button type="button" className="header-new-chat" aria-label="New chat" title="New chat" disabled={controlsDisabled} onClick={newChat}><SquarePen size={17} /></button></header>
       <div ref={scrollRef} onScroll={handleScroll} className={`conversation-scroll ${showRoom ? "is-room" : messages.length || loadingConversation ? "has-messages" : "is-empty"}`}>{showRoom && activeRoom ? <RoomDetail key={activeRoom.id} room={activeRoom} threads={roomThreads} busy={controlsDisabled} onOpenThread={openConversation} onNewThread={() => newThreadInRoom(activeRoom.id)} onSaveRoom={saveRoom} onSaveBrief={saveBrief} onDelete={removeRoom} /> : loadingConversation ? <div className="message-list conversation-skeleton" role="status" aria-busy="true" aria-label="Loading conversation"><div className="skeleton-line is-short" /><div className="skeleton-line" /><div className="skeleton-line" /><div className="skeleton-line is-medium" /></div> : messages.length ? <div className="message-list" aria-live="polite">{messages.map((message) => <MessageRow key={message.id} message={message} initial={initial} isLast={message.id === lastMessage?.id} isLastUser={message.id === lastUser?.id} canMutate={!preview} disabled={messageActionsLocked} editing={editingId === message.id} onRegenerate={regenerate} onStartEdit={startEdit} onCancelEdit={cancelEdit} onSaveEdit={saveEdit} onContinueInWorkbench={preview ? undefined : continueInWorkbench} workbenchPending={workbenchPending} />)}{notice && <p className="local-notice" role="status">{notice}</p>}</div> : <div className="welcome-panel">{notice && <p className="local-notice" role="status">{notice}</p>}<div className="welcome-icon"><BrandMark /></div><p className="welcome-eyebrow">{drafting && activeRoom ? "NEW THREAD" : "A LITTLE ROOM TO THINK"}</p><h1>{drafting && activeRoom ? activeRoom.name : "What’s on your mind?"}</h1><p className="welcome-copy">{drafting && activeRoom ? "This thread starts inside the room. Nibie will use its instructions and brief." : "A fresh page for ideas, questions, and whatever you’re working through."}</p>{drafting ? null : <div className="suggestion-list" aria-label="Suggestions">{suggestions.map((suggestion) => <button key={suggestion} onClick={() => { composerRef.current?.set(suggestion); composerRef.current?.focus(); }}>{suggestion}<span>↗</span></button>)}</div>}</div>}</div>
       {showRoom ? null : <ChatComposer ref={composerRef} sending={sending || recovering} streaming={streaming} models={models} mode={mode} reasoningModes={reasoningModes} reasoning={reasoning} caption={caption} diagnostics={contextDiagnostics ?? contextPreview} onEditProfile={editProfile} onSubmit={submitMessage} onStop={stopStream} onModeChange={changeMode} onReasoningChange={setReasoning} onAttach={attach} />}
     </section>
+    {renaming && <dialog ref={renameDialogRef} className="room-setup-dialog" aria-labelledby={renameTitleId} aria-busy={renameSaving} onCancel={(event) => { event.preventDefault(); if (!renameSaving) setRenaming(null); }}>
+      <header className="settings-header"><h1 id={renameTitleId}>Rename conversation</h1><button type="button" className="icon-button" aria-label="Close rename dialog" disabled={renameSaving} onClick={() => setRenaming(null)}><X size={18} /></button></header>
+      <form className="room-setup-form" onSubmit={(event) => { event.preventDefault(); void saveRename(); }}>
+        <label className="room-field"><span>Conversation title</span><input value={renameTitle} maxLength={120} required disabled={renameSaving} onChange={(event) => setRenameTitle(event.target.value)} /></label>
+        {renameError ? <p className="privacy-error" role="alert">{renameError}</p> : null}
+        <div className="room-setup-actions"><button type="button" className="privacy-button" disabled={renameSaving} onClick={() => setRenaming(null)}>Cancel</button><button type="submit" className="privacy-button" disabled={renameSaving || !renameTitle.trim()}>{renameSaving ? "Saving…" : "Save"}</button></div>
+      </form>
+    </dialog>}
     {creatingRoom ? <RoomCreateDialog preview={preview} onClose={closeRoomSetup} onCreate={createRoom} /> : null}
     {settingsOpen ? <SettingsDialog initialSection={settingsSection} email={email} preview={preview} busy={controlsDisabled} models={models} initialPreferences={savedPreferences} initialError={preferencesError} onClose={closeSettings} onSaved={setSavedPreferences} onConversationsDeleted={conversationsDeleted} /> : null}
   </main>;
