@@ -4,7 +4,7 @@ import { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore, type 
 import { Archive, DoorOpen, MessageSquare, PanelLeftClose, Pencil, Plus, RotateCcw, Settings, SquarePen, X } from "lucide-react";
 import { SIGN_OUT_LABEL } from "@/lib/privacy/sign-out";
 import { AccountMenu } from "@/components/account-menu";
-import { Brand } from "@/components/brand";
+import { Brand, type BrandActivity } from "@/components/brand";
 import { chatPath } from "@/lib/routes";
 import { groupFor, historyGroups } from "@/lib/chat/groups";
 import type { ConversationSummary, RoomSummary } from "@/lib/chat/read";
@@ -18,6 +18,7 @@ type Props = {
   activeId: string | null;
   activeRoomId: string | null;
   busy: boolean;
+  activity: BrandActivity;
   preview: boolean;
   email: string;
   name: string;
@@ -40,7 +41,7 @@ type Props = {
 };
 
 // Memoized: streaming tokens and typing never re-render the history list.
-export const ChatSidebar = memo(function ChatSidebar({ conversations, archivedConversations, rooms, activeId, activeRoomId, busy, preview, email, name, renderedAt, mobile = false, drawerRef, closeMenuRef, desktopToggleRef, onCollapse, onClose, onOpen, onOpenRoom, onCreateRoom, onNewChat, onOpenSettings, onRename, onArchive, onRestore }: Props) {
+export const ChatSidebar = memo(function ChatSidebar({ conversations, archivedConversations, rooms, activeId, activeRoomId, busy, activity, preview, email, name, renderedAt, mobile = false, drawerRef, closeMenuRef, desktopToggleRef, onCollapse, onClose, onOpen, onOpenRoom, onCreateRoom, onNewChat, onOpenSettings, onRename, onArchive, onRestore }: Props) {
   // Server render and hydration group by the UTC calendar from the server's clock so both agree; once mounted, the viewer's own clock and
   // time zone are used (the grouping is recomputed whenever the list changes).
   const mounted = useSyncExternalStore(noopSubscribe, () => true, () => false);
@@ -58,7 +59,7 @@ export const ChatSidebar = memo(function ChatSidebar({ conversations, archivedCo
     return () => { document.removeEventListener("pointerdown", dismissOutside); document.removeEventListener("keydown", dismissEscape); };
   }, [contextMenu]);
   return <aside ref={mobile ? drawerRef : undefined} className={mobile ? "workspace-sidebar mobile-sidebar" : "workspace-sidebar desktop-sidebar"} aria-label={mobile ? "Conversation menu" : "Conversation history"} role={mobile ? "dialog" : undefined} aria-modal={mobile ? true : undefined}>
-    <div className="sidebar-top"><Brand href={chatPath} label="Nibie home" />{mobile ? <button ref={closeMenuRef} className="icon-button" aria-label="Close menu" onClick={onClose}><X size={19} /></button> : onCollapse ? <button ref={desktopToggleRef} className="icon-button" aria-label="Collapse sidebar" title="Collapse sidebar" onClick={onCollapse}><PanelLeftClose size={18} /></button> : null}</div>
+    <div className="sidebar-top"><Brand href={chatPath} label="Nibie home" activity={activity} />{mobile ? <button ref={closeMenuRef} className="icon-button" aria-label="Close menu" onClick={onClose}><X size={19} /></button> : onCollapse ? <button ref={desktopToggleRef} className="icon-button" aria-label="Collapse sidebar" title="Collapse sidebar" onClick={onCollapse}><PanelLeftClose size={18} /></button> : null}</div>
     <button className="new-chat-button" disabled={busy} onClick={onNewChat}><SquarePen size={17} /> <span>New chat</span></button>
     <nav className="history-nav" aria-label="Conversations">
       <section className="history-group" aria-label="Rooms">

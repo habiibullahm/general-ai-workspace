@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { PanelLeftOpen, SquarePen, X } from "lucide-react";
 import { addUserMessageAction, archiveConversationAction, editLastUserMessageAction, moveConversationAction, renameConversationAction, restoreConversationAction, startConversationAction, updateConversationModelAction } from "@/app/actions/chat";
 import { createRoomAction, deleteRoomAction, updateRoomAction, updateRoomBriefAction } from "@/app/actions/rooms";
-import { BrandMark } from "@/components/brand";
+import { BrandMark, type BrandActivity } from "@/components/brand";
 import { ChatComposer, type ComposerHandle } from "@/components/chat-composer";
 import { ChatSidebar } from "@/components/chat-sidebar";
 import { RoomDetail } from "@/components/room-detail";
@@ -124,6 +124,7 @@ export function ChatWorkspace({ email, metadataName = null, initialData, preview
   const desktopExpandButtonRef = useRef<HTMLButtonElement>(null);
   const [sending, setSending] = useState(false);
   const [streaming, setStreaming] = useState(false);
+  const [assistantActivity, setAssistantActivity] = useState<BrandActivity>("idle");
   const busy = useRef(false);
   const submission = useRef<{ id: string; content: string; conversationId: string | null } | null>(null);
   const streamController = useRef<AbortController | null>(null);
@@ -408,7 +409,7 @@ export function ChatWorkspace({ email, metadataName = null, initialData, preview
       setLocalMessages((items) => ({ ...items, [id]: (items[id] ?? []).map((message) => message.id === target ? { ...message, content: message.content + text } : message) }));
     };
     const clearPlaceholder = () => { if (options.placeholderId) setLocalMessages((items) => items[id]?.some((row) => row.id === options.placeholderId) ? { ...items, [id]: items[id].filter((row) => row.id !== options.placeholderId) } : items); };
-    setSending(false); setStreaming(true);
+    setSending(false); setStreaming(true); setAssistantActivity("thinking");
     streamController.current = controller;
     try {
       const response = await fetch("/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ conversationId: id, userMessageId, model: mode, ...(requestReasoning !== "auto" ? { reasoning: requestReasoning } : {}), ...(options.regenerate ? { regenerate: true } : {}) }), signal: controller.signal });
@@ -422,7 +423,7 @@ export function ChatWorkspace({ email, metadataName = null, initialData, preview
           const reply: PersistedMessage = { id: data.id, role: "assistant", content: "", position: data.position, status: "streaming", created_at: new Date().toISOString() };
           setLocalMessages((items) => { const rows = items[id] ?? []; return { ...items, [id]: options.placeholderId && rows.some((row) => row.id === options.placeholderId) ? rows.map((row) => row.id === options.placeholderId ? reply : row) : [...rows, reply] }; });
         }
-        if (data.type === "delta") { buffer += data.text; if (!shown) flush(); else if (!flushTimer) flushTimer = setTimeout(flush, streamFlushMs); }
+        if (data.type === "delta") { setAssistantActivity("streaming"); buffer += data.text; if (!shown) flush(); else if (!flushTimer) flushTimer = setTimeout(flush, streamFlushMs); }
         if (data.type === "status") { flush(); setLocalMessages((items) => ({ ...items, [id]: (items[id] ?? []).map((message) => message.id === assistantId ? { ...message, content: message.content || "Response stopped.", status: data.status } : message) })); }
       }
       flush();
@@ -444,7 +445,7 @@ export function ChatWorkspace({ email, metadataName = null, initialData, preview
         setNotice(failureNotice);
         router.refresh();
       }
-    } finally { clearPlaceholder(); if (flushTimer) clearTimeout(flushTimer); if (streamController.current === controller) streamController.current = null; busy.current = false; setSending(false); setStreaming(false); }
+    } finally { clearPlaceholder(); if (flushTimer) clearTimeout(flushTimer); if (streamController.current === controller) streamController.current = null; busy.current = false; setSending(false); setStreaming(false); setAssistantActivity("idle"); }
   }
   const submitMessage = useStableCallback(async (content: string) => {
     if (!content || busy.current || recovery) return;
@@ -683,10 +684,10 @@ export function ChatWorkspace({ email, metadataName = null, initialData, preview
   const accountName = accountDisplayName({ email, metadataName, preferredName: savedPreferences.preferredName });
   const headerRoomName = (showRoom ? activeRoom?.name : threadRoom?.name) ?? null;
   const roomThreads = activeRoom ? shownConversations.filter((item) => item.room_id === activeRoom.id) : [];
-  const sidebarProps = { conversations: shownConversations, archivedConversations, rooms, activeId: history, activeRoomId: showRoom ? selectedRoomId : threadRoom?.id ?? null, busy: controlsDisabled, preview, email, name: accountName, renderedAt, onClose: closeDrawer, onOpen: openConversation, onOpenRoom: openRoom, onCreateRoom: openRoomSetup, onNewChat: newChat, onOpenSettings: openSettings, onRename: rename, onArchive: archive, onRestore: restore };
+  const sidebarProps = { conversations: shownConversations, archivedConversations, rooms, activeId: history, activeRoomId: showRoom ? selectedRoomId : threadRoom?.id ?? null, busy: controlsDisabled, activity: assistantActivity, preview, email, name: accountName, renderedAt, onClose: closeDrawer, onOpen: openConversation, onOpenRoom: openRoom, onCreateRoom: openRoomSetup, onNewChat: newChat, onOpenSettings: openSettings, onRename: rename, onArchive: archive, onRestore: restore };
 
   return <main className="chat-workspace">{desktopSidebarCollapsed ? null : <ChatSidebar {...sidebarProps} desktopToggleRef={desktopCollapseButtonRef} onCollapse={collapseDesktopSidebar} />}{drawerOpen && <div className="mobile-drawer"><button className="drawer-scrim" aria-label="Dismiss menu backdrop" onClick={closeDrawer} /><ChatSidebar {...sidebarProps} mobile drawerRef={drawerRef} closeMenuRef={closeMenuRef} /></div>}
-    <section className="chat-main" aria-label="Chat workspace"><header className="chat-header">{desktopSidebarCollapsed ? <button ref={desktopExpandButtonRef} type="button" className="icon-button desktop-sidebar-toggle" aria-label="Expand sidebar" title="Expand sidebar" onClick={expandDesktopSidebar}><PanelLeftOpen size={18} /></button> : null}<button ref={menuButtonRef} className="icon-button mobile-menu-button" aria-label="Open conversation menu" onClick={() => setDrawerOpen(true)}><BrandMark /></button><div className="header-model">{!activeId || !threadRoom ? <span className={`header-context${headerRoomName ? " is-room-name" : ""}`}>{headerRoomName ?? "A little room to think"}</span> : null}</div>{activeId && rooms.length ? <label className="thread-room"><span>Room</span><select aria-label="Move thread" value={activeConversation?.room_id ?? ""} disabled={controlsDisabled} onChange={(event) => void moveThread(event.target.value || null)}><option value="">General</option>{rooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}</select></label> : null}<button type="button" className="header-new-chat" aria-label="New chat" title="New chat" disabled={controlsDisabled} onClick={newChat}><SquarePen size={17} /></button></header>
+    <section className="chat-main" aria-label="Chat workspace"><header className="chat-header">{desktopSidebarCollapsed ? <button ref={desktopExpandButtonRef} type="button" className="icon-button desktop-sidebar-toggle" aria-label="Expand sidebar" title="Expand sidebar" onClick={expandDesktopSidebar}><PanelLeftOpen size={18} /></button> : null}<button ref={menuButtonRef} className="icon-button mobile-menu-button" aria-label="Open conversation menu" onClick={() => setDrawerOpen(true)}><BrandMark activity={assistantActivity} /></button><div className="header-model">{!activeId || !threadRoom ? <span className={`header-context${headerRoomName ? " is-room-name" : ""}`}>{headerRoomName ?? "A little room to think"}</span> : null}</div>{activeId && rooms.length ? <label className="thread-room"><span>Room</span><select aria-label="Move thread" value={activeConversation?.room_id ?? ""} disabled={controlsDisabled} onChange={(event) => void moveThread(event.target.value || null)}><option value="">General</option>{rooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}</select></label> : null}<button type="button" className="header-new-chat" aria-label="New chat" title="New chat" disabled={controlsDisabled} onClick={newChat}><SquarePen size={17} /></button></header>
       <div ref={scrollRef} onScroll={handleScroll} className={`conversation-scroll ${showRoom ? "is-room" : messages.length || loadingConversation ? "has-messages" : "is-empty"}`}>{showRoom && activeRoom ? <RoomDetail key={activeRoom.id} room={activeRoom} threads={roomThreads} busy={controlsDisabled} onOpenThread={openConversation} onNewThread={() => newThreadInRoom(activeRoom.id)} onSaveRoom={saveRoom} onSaveBrief={saveBrief} onDelete={removeRoom} /> : loadingConversation ? <div className="message-list conversation-skeleton" role="status" aria-busy="true" aria-label="Loading conversation"><div className="skeleton-line is-short" /><div className="skeleton-line" /><div className="skeleton-line" /><div className="skeleton-line is-medium" /></div> : messages.length ? <div className="message-list" aria-live="polite">{messages.map((message) => <MessageRow key={message.id} message={message} initial={initial} isLast={message.id === lastMessage?.id} isLastUser={message.id === lastUser?.id} canMutate={!preview} disabled={messageActionsLocked} editing={editingId === message.id} onRegenerate={regenerate} onStartEdit={startEdit} onCancelEdit={cancelEdit} onSaveEdit={saveEdit} />)}{notice && <p className="local-notice" role="status">{notice}</p>}</div> : <div className="welcome-panel">{notice && <p className="local-notice" role="status">{notice}</p>}<div className="welcome-icon"><BrandMark /></div><p className="welcome-eyebrow">{drafting && activeRoom ? "NEW THREAD" : "A LITTLE ROOM TO THINK"}</p><h1>{drafting && activeRoom ? activeRoom.name : "What’s on your mind?"}</h1><p className="welcome-copy">{drafting && activeRoom ? "This thread starts inside the room. Nibie will use its instructions and brief." : "A fresh page for ideas, questions, and whatever you’re working through."}</p>{drafting ? null : <div className="suggestion-list" aria-label="Suggestions">{suggestions.map((suggestion) => <button key={suggestion} onClick={() => { composerRef.current?.set(suggestion); composerRef.current?.focus(); }}>{suggestion}<span>↗</span></button>)}</div>}</div>}</div>
       {showRoom ? null : <ChatComposer ref={composerRef} sending={sending || recovering} streaming={streaming} models={models} mode={mode} reasoningModes={reasoningModes} reasoning={reasoning} caption={caption} diagnostics={contextDiagnostics ?? contextPreview} onEditProfile={editProfile} onSubmit={submitMessage} onStop={stopStream} onModeChange={changeMode} onReasoningChange={setReasoning} onAttach={attach} />}
     </section>
