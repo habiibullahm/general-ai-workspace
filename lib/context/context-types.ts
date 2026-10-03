@@ -3,7 +3,7 @@ import type { RoomContextInput } from "@/lib/context/room-context";
 
 export type { RoomContextInput } from "@/lib/context/room-context";
 
-export type ContextSourceType = "core" | "profile" | "room" | "thread_summary" | "recent_messages" | "current_request";
+export type ContextSourceType = "core" | "profile" | "room" | "pins" | "thread_summary" | "recent_messages" | "current_request";
 
 export type ContextAuthority = "policy" | "untrusted_data";
 
@@ -24,8 +24,8 @@ export type ContextBlock = {
 };
 
 export type ContextSourceDiagnostic = {
-  type: "profile" | "room" | "thread_summary" | "recent_messages";
-  label: "Your profile" | "This room" | "Thread summary" | "Recent conversation";
+  type: "profile" | "room" | "pins" | "thread_summary" | "recent_messages";
+  label: "Your profile" | "This room" | "Pinned context" | "Thread summary" | "Recent conversation";
   state: "included" | "not_used";
   reason: string;
 };

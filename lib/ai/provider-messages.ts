@@ -8,9 +8,10 @@ export function toProviderMessages(plan: ContextPlan): ProviderMessage[] {
   if (core) messages.push({ role: "system", content: core.text });
   const profile = plan.blocks.find((block) => block.id === "profile" && block.included);
   const room = plan.blocks.find((block) => block.id === "room" && block.included);
+  const pins = plan.blocks.find((block) => block.id === "pins" && block.included);
   const summary = plan.blocks.find((block) => block.id === "thread_summary" && block.included);
-  if (profile || room || summary) {
-    messages.push({ role: "system", content: [CONTEXT_DATA_PREAMBLE, profile?.text, room?.text, summary?.text].filter(Boolean).join("\n\n") });
+  if (profile || room || pins || summary) {
+    messages.push({ role: "system", content: [CONTEXT_DATA_PREAMBLE, profile?.text, room?.text, pins?.text, summary?.text].filter(Boolean).join("\n\n") });
   }
   for (const block of plan.blocks) {
     if (!block.included || !block.dialogueRole) continue;
