@@ -238,6 +238,8 @@ It should be user-owned and optionally AI-maintained. Users must be able to insp
 
 ## 8. Pins
 
+Pins V1 is specified in [PINS_V1.md](./PINS_V1.md): a room-owned title and note the user saves on purpose. The wider sources below (messages, files, workbench excerpts) are not part of that version.
+
 Pins let the user deliberately mark information as important context. Pins may come from messages, Workbench items, files, file excerpts, decisions, or custom notes.
 
 Context priority:

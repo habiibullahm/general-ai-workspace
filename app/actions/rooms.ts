@@ -7,6 +7,7 @@ import { parseRoomBrief, parseRoomDraft, parseRoomPatch } from "@/lib/rooms/vali
 import type { RoomBriefFields, RoomOverview } from "@/lib/rooms/types";
 import type { RoomBriefRow } from "@/lib/rooms/map";
 import { generateRoomOverview } from "@/lib/rooms/generate";
+import { deleteRoomFileObjects, type RoomFileClient } from "@/lib/files/service";
 
 export type RoomActionResult<T = undefined> = { data?: T; error?: string };
 
@@ -138,7 +139,9 @@ export async function deleteRoomAction(id: unknown): Promise<RoomActionResult> {
   const parsedId = validateConversationId(id);
   if (!parsedId.success) return { error: "Choose a valid room." };
   try {
-    const { supabase } = await authenticatedClient();
+    const { supabase, user } = await authenticatedClient();
+    const removed = await deleteRoomFileObjects(supabase as unknown as RoomFileClient, user.id, parsedId.data);
+    if (removed.error) return { error: removed.error };
     const { data, error } = await supabase.from("rooms").delete().eq("id", parsedId.data).select("id").maybeSingle();
     if (error) return { error: saveFailed };
     if (!data) return { error: unavailable };

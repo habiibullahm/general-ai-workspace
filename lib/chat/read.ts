@@ -22,6 +22,15 @@ export type RoomBriefSummary = {
   next_step: string | null;
 };
 
+export type PinSummary = {
+  id: string;
+  room_id: string;
+  title: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type RoomSummary = {
   id: string;
   name: string;
@@ -30,6 +39,7 @@ export type RoomSummary = {
   created_at: string;
   updated_at: string;
   brief: RoomBriefSummary | null;
+  pins: PinSummary[];
 };
 export type PersistedMessage = { id: string; role: "user" | "assistant"; content: string; position: number; status?: "complete" | "streaming" | "interrupted" | "error"; created_at?: string };
 
@@ -49,7 +59,7 @@ export async function getChatWorkspaceData(conversationId: unknown) {
 
   // The history list and the selected conversation's messages are independent reads, so they run together.
   // RLS scopes both to the signed-in owner; messages are only used when the conversation is in the owner's list.
-  const [conversationResult, { data: roomRows, error: roomsError }, { data: briefRows, error: briefsError }, messagesResult] = await Promise.all([
+  const [conversationResult, { data: roomRows, error: roomsError }, { data: briefRows, error: briefsError }, { data: pinRows, error: pinsError }, messagesResult] = await Promise.all([
     orderedConversations("id,title,selected_model,room_id,archived_at,created_at,updated_at"),
     supabase
       .from("rooms")
@@ -59,6 +69,11 @@ export async function getChatWorkspaceData(conversationId: unknown) {
     supabase
       .from("room_briefs")
       .select("room_id,goal,current_focus,important_decisions,open_questions,next_step"),
+    supabase
+      .from("pins")
+      .select("id,room_id,title,content,created_at,updated_at")
+      .order("updated_at", { ascending: false })
+      .order("id", { ascending: true }),
     parsedId.success ? readMessages(parsedId.data) : Promise.resolve(null),
   ]);
   const withoutArchive = schemaUnavailable(conversationResult.error)
@@ -86,8 +101,17 @@ export async function getChatWorkspaceData(conversationId: unknown) {
     open_questions: brief.open_questions,
     next_step: brief.next_step,
   }]));
-  const rooms: RoomSummary[] = roomsMissing ? [] : (roomRows ?? []).map((room) => ({ ...room, brief: briefs.get(room.id) ?? null }));
-  const roomError = !roomsMissing && (roomsError || briefsError) ? "Rooms couldn't be loaded. Refresh to try again." : null;
+  const pinsMissing = roomsMissing || schemaUnavailable(pinsError);
+  const pinsByRoom = new Map<string, PinSummary[]>();
+  if (!pinsMissing) {
+    for (const pin of pinRows ?? []) {
+      const list = pinsByRoom.get(pin.room_id) ?? [];
+      list.push(pin);
+      pinsByRoom.set(pin.room_id, list);
+    }
+  }
+  const rooms: RoomSummary[] = roomsMissing ? [] : (roomRows ?? []).map((room) => ({ ...room, brief: briefs.get(room.id) ?? null, pins: pinsByRoom.get(room.id) ?? [] }));
+  const roomError = !roomsMissing && (roomsError || briefsError || (!pinsMissing && pinsError)) ? "Rooms couldn't be loaded. Refresh to try again." : null;
 
   const active = parsedId.success ? conversations.find((item) => item.id === parsedId.data) : undefined;
   if (!active || !messagesResult) return { conversations, archivedConversations, rooms, messages: [] as PersistedMessage[], activeId: null, error: roomError };

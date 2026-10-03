@@ -36,7 +36,7 @@ describe("settings ownership", () => {
 
     const privacyEntries = sources.filter((file) => {
       const normalized = file.replaceAll("\\", "/");
-      // The public guide explains data controls. It is not a settings entry.
+      // Public docs may name the topic. This scan is for the removed settings entry.
       if (normalized.includes("/app/docs/")) return false;
       return /privacy-entry|Data & privacy/.test(readFileSync(file, "utf8"));
     });

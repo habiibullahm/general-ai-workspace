@@ -10,8 +10,11 @@ import { contextCapabilitiesFor, getModelOptions } from "@/lib/ai/registry";
 import { readOpenAiSse } from "@/lib/ai/sse";
 import { buildContext } from "@/lib/context/build-context";
 import { CONTEXT_POLICY_VERSION } from "@/lib/context/context-policy";
+import type { FileContextInput } from "@/lib/context/context-types";
 import type { RoomContextInput } from "@/lib/context/room-context";
-import { roomContextFromRows, type RoomBriefRow } from "@/lib/rooms/map";
+import { parseSelectedFileIds } from "@/lib/files/inspect";
+import { MAX_FILES_PER_MESSAGE } from "@/lib/files/limits";
+import { roomContextFromRows, type PinContextRow, type RoomBriefRow } from "@/lib/rooms/map";
 import { loadOwnerPreferences } from "@/lib/preferences/store";
 
 export const runtime = "nodejs";
@@ -37,13 +40,14 @@ async function respond(request: Request) {
 
   let body: unknown;
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Invalid request." }, { status: 400 }); }
-  const value = body as { conversationId?: unknown; userMessageId?: unknown; regenerate?: unknown; model?: unknown; reasoning?: unknown };
+  const value = body as { conversationId?: unknown; userMessageId?: unknown; regenerate?: unknown; model?: unknown; reasoning?: unknown; fileIds?: unknown };
   const parsedId = validateConversationId(value?.conversationId);
   const parsedMessageId = validateConversationId(value?.userMessageId);
+  const selectedFiles = parseSelectedFileIds(value?.fileIds, MAX_FILES_PER_MESSAGE);
   // The client may name a mode and a reasoning effort, but only from fixed vocabularies; neither is ever a provider model id.
   const requestedModel = value?.model === undefined ? undefined : modelSchema.safeParse(value.model);
   const requestedReasoning = value?.reasoning === undefined ? undefined : reasoningEffortSchema.safeParse(value.reasoning);
-  if (!parsedId.success || !parsedMessageId.success || (value.regenerate !== undefined && typeof value.regenerate !== "boolean") || requestedModel?.success === false || requestedReasoning?.success === false) return NextResponse.json({ error: "Invalid request." }, { status: 400 });
+  if (!selectedFiles.ok || !parsedId.success || !parsedMessageId.success || (value.regenerate !== undefined && typeof value.regenerate !== "boolean") || requestedModel?.success === false || requestedReasoning?.success === false) return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   const regenerate = value.regenerate === true;
   // Only modes that are configured on the server can be used, whether the client asked for one or the conversation has one saved.
   const { models: availableModels, reasoningModes } = getModelOptions();
@@ -71,12 +75,25 @@ async function respond(request: Request) {
   if (!conversation) return NextResponse.json({ error: "Conversation unavailable." }, { status: 404 });
   let room: RoomContextInput | null = null;
   if (conversation.room_id) {
-    const [{ data: roomRow, error: roomError }, { data: briefRow, error: briefError }] = await Promise.all([
+    const [{ data: roomRow, error: roomError }, { data: briefRow, error: briefError }, { data: pinRows, error: pinError }] = await Promise.all([
       supabase.from("rooms").select("name,instructions").eq("id", conversation.room_id).maybeSingle(),
       supabase.from("room_briefs").select("goal,current_focus,important_decisions,open_questions,next_step").eq("room_id", conversation.room_id).maybeSingle(),
+      supabase.from("pins").select("id,title,content,updated_at").eq("room_id", conversation.room_id).order("updated_at", { ascending: false }).order("id", { ascending: true }),
     ]);
-    if (roomError || briefError) return NextResponse.json({ error: safeError }, { status: 503 });
-    room = roomContextFromRows(roomRow, briefRow as RoomBriefRow | null);
+    if (roomError || briefError || pinError) return NextResponse.json({ error: safeError }, { status: 503 });
+    room = roomContextFromRows(roomRow, briefRow as RoomBriefRow | null, pinRows as PinContextRow[] | null);
+  }
+  let files: FileContextInput[] | undefined;
+  if (selectedFiles.ids.length) {
+    if (!conversation.room_id) return NextResponse.json({ error: "Choose a file from this thread's room." }, { status: 400 });
+    const { data: fileRows, error: fileError } = await supabase.from("room_files").select("id,original_name,extracted_text").eq("room_id", conversation.room_id).in("id", selectedFiles.ids);
+    if (fileError) return NextResponse.json({ error: safeError }, { status: 503 });
+    const byId = new Map((fileRows ?? []).map((row) => [row.id, row]));
+    if (selectedFiles.ids.some((id) => !byId.has(id))) return NextResponse.json({ error: "That file isn't available in this room." }, { status: 400 });
+    files = selectedFiles.ids.map((id) => {
+      const row = byId.get(id)!;
+      return { name: row.original_name, text: row.extracted_text };
+    });
   }
   const mode = requestedModel?.data ?? resolveMode(conversation.selected_model, availableModes);
   if (!mode) return NextResponse.json({ error: safeError }, { status: 503 });
@@ -112,6 +129,7 @@ async function respond(request: Request) {
       preferenceReadFailed: Boolean(preferenceState.error),
       summary: null,
       room,
+      files,
       messages: rows.map((row) => ({ role: row.role as "user" | "assistant", content: row.content, position: row.position })),
       currentPosition: userMessage.position,
     });
@@ -119,6 +137,8 @@ async function respond(request: Request) {
     context = plan.diagnostics;
     const profile = plan.blocks.some((block) => block.id === "profile" && block.included);
     const roomIncluded = plan.blocks.some((block) => block.id === "room" && block.included);
+    const pinsIncluded = plan.blocks.some((block) => block.id === "pins" && block.included);
+    const fileIncluded = plan.blocks.some((block) => block.id === "file" && block.included);
     const summary = plan.blocks.some((block) => block.id === "thread_summary" && block.included);
     console.info(JSON.stringify({
       event: "context.built",
@@ -126,6 +146,9 @@ async function respond(request: Request) {
       "context.source.count": plan.blocks.filter((block) => block.included).length,
       "context.profile.included": profile,
       "context.room.included": roomIncluded,
+      "context.pins.included": pinsIncluded,
+      "context.file.included": fileIncluded,
+      "context.file.count": files?.length ?? 0,
       "context.summary.included": summary,
       "context.recent_message_count": plan.diagnostics.recentMessageCount,
       "context.estimated_tokens": plan.budget.estimatedTokens,
