@@ -1,13 +1,13 @@
 "use client";
 
-import { memo, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import { memo, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type DragEvent, type RefObject } from "react";
 import Link from "next/link";
-import { Archive, DoorOpen, FileText, MessageSquare, PanelLeftClose, Pencil, Plus, RotateCcw, Search, Settings, SquarePen, X } from "lucide-react";
+import { Archive, ChevronDown, ChevronRight, DoorOpen, FileText, MessageSquare, MoreHorizontal, PanelLeftClose, Pencil, Plus, RotateCcw, Search, Settings, SquarePen, X } from "lucide-react";
 import { SIGN_OUT_LABEL } from "@/lib/privacy/sign-out";
 import { AccountMenu } from "@/components/account-menu";
 import { Brand } from "@/components/brand";
 import { chatPath, workbenchPath } from "@/lib/routes";
-import { groupFor, historyGroups } from "@/lib/chat/groups";
+import { groupFor, groupThreads, historyGroups, requestTime } from "@/lib/chat/groups";
 import type { ConversationSummary, RoomSummary } from "@/lib/chat/read";
 
 const noopSubscribe = () => () => undefined;
@@ -38,6 +38,7 @@ type Props = {
   onRename: (item: ConversationSummary) => void;
   onArchive: (item: ConversationSummary) => void;
   onRestore: (item: ConversationSummary) => void;
+  onMove: (item: ConversationSummary, roomId: string | null) => Promise<void>;
 };
 
 function ConversationSearchDialog({ conversations, archivedConversations, onOpen, onRestore, onClose }: Pick<Props, "conversations" | "archivedConversations" | "onOpen" | "onRestore" | "onClose">) {
@@ -69,15 +70,37 @@ function ConversationSearchDialog({ conversations, archivedConversations, onOpen
 }
 
 // Memoized: streaming tokens and typing never re-render the history list.
-export const ChatSidebar = memo(function ChatSidebar({ conversations, archivedConversations, rooms, activeId, activeRoomId, busy, preview, email, name, renderedAt, mobile = false, drawerRef, closeMenuRef, desktopToggleRef, onCollapse, onClose, onOpen, onOpenRoom, onCreateRoom, onNewChat, onOpenSettings, onRename, onArchive, onRestore }: Props) {
+export const ChatSidebar = memo(function ChatSidebar({ conversations, archivedConversations, rooms, activeId, activeRoomId, busy, preview, email, name, renderedAt, mobile = false, drawerRef, closeMenuRef, desktopToggleRef, onCollapse, onClose, onOpen, onOpenRoom, onCreateRoom, onNewChat, onOpenSettings, onRename, onArchive, onRestore, onMove }: Props) {
   // Server render and hydration group by the UTC calendar from the server's clock so both agree; once mounted, the viewer's own clock and
   // time zone are used (the grouping is recomputed whenever the list changes).
   const mounted = useSyncExternalStore(noopSubscribe, () => true, () => false);
-  const now = useMemo(() => (mounted ? Date.now() : renderedAt ?? 0), [mounted, renderedAt]);
+  const now = useMemo(() => (mounted ? requestTime() : renderedAt ?? 0), [mounted, renderedAt]);
+  const grouped = useMemo(() => groupThreads(conversations), [conversations]);
+  const generalGroups = useMemo(() => historyGroups.map((group) => ({ group, entries: grouped.general.filter((item) => groupFor(item.updated_at, now, mounted ? undefined : "UTC") === group) })), [grouped, now, mounted]);
+  const [expandedRooms, setExpandedRooms] = useState<string[]>(activeRoomId ? [activeRoomId] : []);
+  const activeRoomKey = activeRoomId ? `${activeRoomId}:${activeId ?? ""}` : null;
+  const [expandedActiveRoom, setExpandedActiveRoom] = useState(activeRoomKey);
+  if (expandedActiveRoom !== activeRoomKey) {
+    setExpandedActiveRoom(activeRoomKey);
+    if (activeRoomId) setExpandedRooms((ids) => ids.includes(activeRoomId) ? ids : [...ids, activeRoomId]);
+  }
+  const [dropRoom, setDropRoom] = useState<string | null | undefined>(undefined);
+  const [moveItem, setMoveItem] = useState<ConversationSummary | null>(null);
+  const [moveRoomId, setMoveRoomId] = useState("");
+  const moveDialogRef = useRef<HTMLDialogElement>(null);
+  const moveTitleId = useId();
   const [searchOpen, setSearchOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ item: ConversationSummary; x: number; y: number } | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const contextTriggerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!moveItem) return;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = moveDialogRef.current;
+    dialog?.showModal();
+    dialog?.querySelector("select")?.focus();
+    return () => { dialog?.close(); previous?.focus(); };
+  }, [moveItem]);
   useEffect(() => {
     if (!contextMenu) return;
     contextMenuRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
@@ -87,6 +110,35 @@ export const ChatSidebar = memo(function ChatSidebar({ conversations, archivedCo
     document.addEventListener("keydown", dismissEscape);
     return () => { document.removeEventListener("pointerdown", dismissOutside); document.removeEventListener("keydown", dismissEscape); };
   }, [contextMenu]);
+  function showActions(item: ConversationSummary, trigger: HTMLDivElement, x: number, y: number) {
+    contextTriggerRef.current = trigger;
+    setContextMenu({ item, x: Math.max(8, Math.min(x, window.innerWidth - 192)), y: Math.max(8, Math.min(y, window.innerHeight - 140)) });
+  }
+  function drop(event: DragEvent<HTMLElement>, roomId: string | null) {
+    event.preventDefault();
+    setDropRoom(undefined);
+    if (mobile || busy) return;
+    const id = event.dataTransfer.getData("application/x-nibie-thread");
+    const item = conversations.find((entry) => entry.id === id && !entry.archived_at);
+    if (!item) return;
+    if (roomId) setExpandedRooms((ids) => ids.includes(roomId) ? ids : [...ids, roomId]);
+    void onMove(item, roomId);
+  }
+  function dragOver(event: DragEvent<HTMLElement>, roomId: string | null) {
+    if (mobile || busy || !event.dataTransfer.types.includes("application/x-nibie-thread")) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDropRoom(roomId);
+  }
+  function renderThread(item: ConversationSummary) {
+    return <div className="history-entry" key={item.id} data-conversation-id={item.id} tabIndex={-1} draggable={!mobile && !busy}
+      onDragStart={(event) => { if (mobile || busy) { event.preventDefault(); return; } event.dataTransfer.setData("application/x-nibie-thread", item.id); event.dataTransfer.effectAllowed = "move"; setContextMenu(null); }} onDragEnd={() => setDropRoom(undefined)}
+      onContextMenu={(event) => { event.preventDefault(); showActions(item, event.currentTarget, event.clientX, event.clientY); }}>
+      <button className={`history-item ${activeId === item.id ? "is-active" : ""}`} onClick={(event) => { if (event.detail === 2) onRename(item); else onOpen(item.id); }} title={`${item.title} · Double-click to rename`}><MessageSquare size={15} /><span>{item.title}</span></button>
+      <button type="button" className="history-action" aria-label={`Actions for ${item.title}`} title="Thread actions" aria-haspopup="menu" onClick={(event) => { const trigger = event.currentTarget.closest<HTMLDivElement>(".history-entry"); if (!trigger) return; const box = event.currentTarget.getBoundingClientRect(); showActions(item, trigger, box.left, box.bottom); }}><MoreHorizontal size={15} /></button>
+      {!preview && <button className="history-action" aria-label={`Archive ${item.title}`} title="Archive" disabled={busy} onClick={() => onArchive(item)}><Archive size={13} /></button>}
+    </div>;
+  }
   return <aside ref={mobile ? drawerRef : undefined} className={mobile ? "workspace-sidebar mobile-sidebar" : "workspace-sidebar desktop-sidebar"} aria-label={mobile ? "Conversation menu" : "Conversation history"} role={mobile ? "dialog" : undefined} aria-modal={mobile ? true : undefined}>
     <div className="sidebar-top"><Brand href={chatPath} label="Nibie home" /><div className="sidebar-controls"><button type="button" className="icon-button" aria-label="Search conversations" title="Search conversations" aria-haspopup="dialog" aria-expanded={searchOpen} onClick={() => setSearchOpen(true)}><Search size={18} aria-hidden="true" /></button>{mobile ? <button ref={closeMenuRef} className="icon-button" aria-label="Close menu" onClick={onClose}><X size={19} /></button> : onCollapse ? <button ref={desktopToggleRef} className="icon-button" aria-label="Collapse sidebar" title="Collapse sidebar" onClick={onCollapse}><PanelLeftClose size={18} /></button> : null}</div></div>
     <button className="new-chat-button" disabled={busy} onClick={onNewChat}><SquarePen size={17} /> <span>New chat</span></button>
@@ -94,22 +146,31 @@ export const ChatSidebar = memo(function ChatSidebar({ conversations, archivedCo
     <nav className="history-nav" aria-label="Conversations">
       <section className="history-group" aria-label="Rooms">
         <h2>Rooms</h2>
-        {rooms.map((room) => <div className="history-entry" key={room.id}><button className={`history-item ${activeRoomId === room.id && !activeId ? "is-active" : ""}`} onClick={() => onOpenRoom(room.id)} title={room.name}><DoorOpen size={15} /><span>{room.name}</span></button></div>)}
+        {rooms.map((room) => {
+          const expanded = expandedRooms.includes(room.id);
+          return <div key={room.id} className={`sidebar-room${dropRoom === room.id ? " is-drop-target" : ""}`} data-room-id={room.id} onDragOver={(event) => dragOver(event, room.id)} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropRoom(undefined); }} onDrop={(event) => drop(event, room.id)}>
+            <div className="history-entry"><button type="button" className="room-expand" aria-label={`${expanded ? "Collapse" : "Expand"} ${room.name}`} aria-expanded={expanded} onClick={() => setExpandedRooms((ids) => expanded ? ids.filter((id) => id !== room.id) : [...ids, room.id])}>{expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</button><button className={`history-item ${activeRoomId === room.id && !activeId ? "is-active" : ""}`} onClick={() => onOpenRoom(room.id)} title={room.name}><DoorOpen size={15} /><span>{room.name}</span></button></div>
+            {expanded && <div className="room-thread-list" role="group" aria-label={`Threads in ${room.name}`}>{(grouped.byRoom.get(room.id) ?? []).map(renderThread)}</div>}
+          </div>;
+        })}
         <button className="history-item" disabled={busy} onClick={onCreateRoom}><Plus size={15} /><span>New room</span></button>
       </section>
-      {historyGroups.map((group) => {
-        const entries = conversations.filter((item) => groupFor(item.updated_at, now, mounted ? undefined : "UTC") === group);
+      <section className={`history-group general-threads${dropRoom === null ? " is-drop-target" : ""}`} aria-label="General" onDragOver={(event) => dragOver(event, null)} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropRoom(undefined); }} onDrop={(event) => drop(event, null)}><h2>General</h2>
+      {generalGroups.map(({ group, entries }) => {
         if (!entries.length) return null;
         return <section className="history-group" key={group} aria-label={group}>
           <h2>{group}</h2>
-          {entries.map((item) => <div className="history-entry" key={item.id} data-conversation-id={item.id} tabIndex={-1} onContextMenu={(event) => { if (preview) return; event.preventDefault(); contextTriggerRef.current = event.currentTarget; setContextMenu({ item, x: Math.max(8, Math.min(event.clientX, window.innerWidth - 192)), y: Math.max(8, Math.min(event.clientY, window.innerHeight - 132)) }); }}>
-            <button className={`history-item ${activeId === item.id ? "is-active" : ""}`} onClick={(event) => { if (event.detail === 2) onRename(item); else if (event.detail === 1) onOpen(item.id); }} title={`${item.title} · Double-click to rename`}><MessageSquare size={15} /><span>{item.title}</span></button>
-            {!preview && <button className="history-action" aria-label={`Archive ${item.title}`} title="Archive" onClick={() => onArchive(item)}><Archive size={13} /></button>}
-          </div>)}
+          {entries.map(renderThread)}
         </section>;
-      })}
+      })}</section>
     </nav>
-    {contextMenu && <div ref={contextMenuRef} className="history-context-menu" role="menu" aria-label={`Actions for ${contextMenu.item.title}`} tabIndex={-1} style={{ left: contextMenu.x, top: contextMenu.y }}><button type="button" role="menuitem" onClick={() => { setContextMenu(null); onRename(contextMenu.item); }}><Pencil size={14} />Rename</button><button type="button" role="menuitem" disabled={contextMenu.item.id === activeId && busy} onClick={() => { setContextMenu(null); onArchive(contextMenu.item); }}><Archive size={14} />Archive</button></div>}
+    {contextMenu && <div ref={contextMenuRef} className="history-context-menu" role="menu" aria-label={`Actions for ${contextMenu.item.title}`} tabIndex={-1} style={{ left: contextMenu.x, top: contextMenu.y }}><button type="button" role="menuitem" disabled={busy} onClick={() => { setMoveItem(contextMenu.item); setMoveRoomId(contextMenu.item.room_id ?? ""); setContextMenu(null); }}>Move to…</button>{!preview && <><button type="button" role="menuitem" onClick={() => { setContextMenu(null); onRename(contextMenu.item); }}><Pencil size={14} />Rename</button><button type="button" role="menuitem" disabled={busy} onClick={() => { setContextMenu(null); onArchive(contextMenu.item); }}><Archive size={14} />Archive</button></>}</div>}
+    {moveItem && <dialog ref={moveDialogRef} className="thread-move-dialog" aria-labelledby={moveTitleId} onKeyDown={(event) => event.stopPropagation()} onCancel={(event) => { event.preventDefault(); setMoveItem(null); }}>
+      <form onSubmit={(event) => { event.preventDefault(); const item = moveItem; setMoveItem(null); if (moveRoomId) setExpandedRooms((ids) => ids.includes(moveRoomId) ? ids : [...ids, moveRoomId]); void onMove(item, moveRoomId || null); }}>
+        <h2 id={moveTitleId}>Move thread</h2><p>{moveItem.title}</p><label>Move to<select aria-label="Move to" value={moveRoomId} onChange={(event) => setMoveRoomId(event.target.value)}><option value="">General</option>{rooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}</select></label>
+        <div className="room-setup-actions"><button type="button" className="privacy-button" onClick={() => setMoveItem(null)}>Cancel</button><button type="submit" className="privacy-button" disabled={busy}>Move thread</button></div>
+      </form>
+    </dialog>}
     <div className="account-area"><div className="account-row"><AccountMenu email={email} name={name} signOutLabel={SIGN_OUT_LABEL} onOpenSettings={onOpenSettings} /><button type="button" className="icon-button account-settings" aria-label="Settings" onClick={onOpenSettings}><Settings size={16} aria-hidden="true" /></button></div></div>
     {searchOpen && <ConversationSearchDialog conversations={conversations} archivedConversations={archivedConversations} onOpen={onOpen} onRestore={onRestore} onClose={() => setSearchOpen(false)} />}
   </aside>;

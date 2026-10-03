@@ -89,7 +89,7 @@ export async function getChatWorkspaceData(conversationId: unknown) {
       ? ((withoutArchive.data ?? []) as unknown as Omit<ConversationSummary, "archived_at">[]).map((row) => ({ ...row, archived_at: null }))
       : conversationResult.data;
   const conversationsError = withoutRoom ? withoutRoom.error : withoutArchive ? withoutArchive.error : conversationResult.error;
-  const empty = { conversations: [] as ConversationSummary[], archivedConversations: [] as ConversationSummary[], rooms: [] as RoomSummary[], messages: [] as PersistedMessage[], activeId: null };
+  const empty = { conversations: [] as ConversationSummary[], archivedConversations: [] as ConversationSummary[], rooms: [] as RoomSummary[], roomsError: null as string | null, messages: [] as PersistedMessage[], activeId: null };
   if (conversationsError) return { ...empty, error: "Conversation history couldn't be loaded. Refresh to try again." };
   const allConversations = ((conversationRows ?? []) as ConversationSummary[]).map((row) => ({ ...row, room_id: row.room_id ?? null, archived_at: row.archived_at ?? null }));
   const conversations = allConversations.filter((item) => !item.archived_at);
@@ -115,9 +115,9 @@ export async function getChatWorkspaceData(conversationId: unknown) {
   const roomError = !roomsMissing && (roomsError || briefsError || (!pinsMissing && pinsError)) ? "Rooms couldn't be loaded. Refresh to try again." : null;
 
   const active = parsedId.success ? conversations.find((item) => item.id === parsedId.data) : undefined;
-  if (!active || !messagesResult) return { conversations, archivedConversations, rooms, messages: [] as PersistedMessage[], activeId: null, error: roomError };
+  if (!active || !messagesResult) return { conversations, archivedConversations, rooms, roomsError: roomError, messages: [] as PersistedMessage[], activeId: null, error: roomError };
 
-  const loadError = { conversations, archivedConversations, rooms, messages: [] as PersistedMessage[], activeId: active.id, error: "This conversation couldn't be loaded. Refresh to try again." };
+  const loadError = { conversations, archivedConversations, rooms, roomsError: roomError, messages: [] as PersistedMessage[], activeId: active.id, error: "This conversation couldn't be loaded. Refresh to try again." };
   if (messagesResult.error) return loadError;
   let messages = messagesResult.data ?? [];
 
@@ -129,7 +129,7 @@ export async function getChatWorkspaceData(conversationId: unknown) {
     if (reread.error) return loadError;
     messages = reread.data ?? [];
   }
-  return { conversations, archivedConversations, rooms, messages: messages.map(visibleMessage), activeId: active.id, error: roomError };
+  return { conversations, archivedConversations, rooms, roomsError: roomError, messages: messages.map(visibleMessage), activeId: active.id, error: roomError };
 }
 
 function visibleMessage<T extends { role: string; content: string }>(message: T): T {
