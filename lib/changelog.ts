@@ -1,5 +1,12 @@
 export const changelogPath = "/changelog";
 
+// Newest public notes, one line each. The first three items in CHANGELOG.md use this same wording.
+export const changelogPreview = [
+  "Rooms keep a brief, instructions, and their own threads",
+  "Pins and selected files stay with the Room you are in",
+  "Settings cover language, the model, and how Nibie replies",
+] as const;
+
 export type ChangelogGroup = {
   heading: string;
   items: string[];

@@ -6,16 +6,21 @@ What's new in Nibie.
 
 ## Current development
 
-### Added
+### Workspace
 
-- Public landing, docs, and privacy pages
-- Email sign-in, Google sign-in, and sign-out on every device
-- Conversations with streaming replies, stop, retry, regenerate, and edit-and-resend
-- Model modes and reasoning effort
-- Archive and restore for conversations
-- Rooms with instructions, an editable brief, and threads that keep that context
-- Pins kept with a Room
-- Room files for plain text, Markdown, and CSV, used when you select them
-- A context panel for the profile, room, pins, selected files, and recent messages in a reply
+- Rooms keep a brief, instructions, and their own threads
+- Pins and selected files stay with the Room you are in
+- A context panel shows the profile, room, pins, selected files, and recent messages
 - Workbench documents you can create, edit, and save
-- Settings for language, the default model, response length, response style, personalization, and conversation export or deletion
+- Archive and restore for conversations
+
+### Chat
+
+- Streaming replies, with stop, retry, regenerate, and edit-and-resend
+- Fast, Balanced, and Reasoning, plus reasoning effort where a mode supports it
+
+### Account
+
+- Settings cover language, the model, and how Nibie replies
+- Email sign-in, Google sign-in, and sign-out on every device
+- Public landing, docs, and privacy pages
