@@ -35,7 +35,11 @@ function configuredModels(env: Env): Partial<Record<ChatModel, string>> {
 function reasoningModesFrom(env: Env, models: Partial<Record<ChatModel, string>>): ChatModel[] {
   const listed = (env.AI_REASONING_MODES ?? "").split(",").map((value) => value.trim()).filter(Boolean);
   // Unknown names and modes that are not configured are ignored rather than trusted.
-  return modeOrder.filter((mode) => models[mode] && listed.some((value) => modelSchema.safeParse(value).data === mode));
+  // The configured GPT-6 Luna Chat Completions route supports low/medium/high natively.
+  // An explicit AI_REASONING_MODES value retains the operator's capability override.
+  return modeOrder.filter((mode) => models[mode] && (env.AI_REASONING_MODES === undefined
+    ? models[mode] === "gpt-6-luna"
+    : listed.some((value) => modelSchema.safeParse(value).data === mode)));
 }
 
 export function getAiConfig(env: Env = process.env): AiConfig {
@@ -76,6 +80,16 @@ export function resolveLogicalModel(model: ChatModel, config: AiConfig): string 
 // the provider, its base URL and its key are never part of this.
 export function getModelOptions(env: Env = process.env): { models: ModelOption[]; reasoningModes: ChatModel[] } {
   const configured = configuredModels(env);
-  const models = modeOrder.filter((mode) => configured[mode]).map((mode) => ({ id: mode, label: mode, model: configured[mode]! }));
+  const names: Record<string, string> = {
+    "MiniMax-M2.7-highspeed": "MiniMax M2.7",
+    "deepseek-v4.1-flash:netra": "DeepSeek V4.1 Flash",
+    "gpt-6-luna": "GPT-6 Luna",
+  };
+  const models = modeOrder.filter((mode) => configured[mode]).map((mode, index) => {
+    const configuredLabel = env[modelVariables[mode] + "_LABEL"]?.trim();
+    const label = configuredLabel && /^[A-Za-z0-9 .()_-]{1,60}$/.test(configuredLabel)
+      ? configuredLabel : names[configured[mode]!] ?? "Model " + (index + 1);
+    return { id: mode, label, model: label };
+  });
   return { models, reasoningModes: reasoningModesFrom(env, configured) };
 }

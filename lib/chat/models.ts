@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { modelSchema, type ChatModel } from "@/lib/chat/validation";
 
+export const modelChoiceSchema = modelSchema.or(z.literal("Auto"));
+export type ModelChoice = z.infer<typeof modelChoiceSchema>;
+
 // Product-facing model choices. The client only ever names one of these three modes; which provider model sits behind each mode
 // is decided on the server (AI_MODEL_FAST / AI_MODEL_BALANCED / AI_MODEL_REASONING) and a mode is offered only when it is configured.
 export type ModelOption = { id: ChatModel; label: string; model: string };
