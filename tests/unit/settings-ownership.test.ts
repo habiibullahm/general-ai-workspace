@@ -34,7 +34,12 @@ describe("settings ownership", () => {
     expect(openers).toHaveLength(1);
     expect(openers[0].replaceAll("\\", "/")).toContain("components/chat-sidebar.tsx");
 
-    const privacyEntries = sources.filter((file) => /privacy-entry|Data & privacy/.test(readFileSync(file, "utf8")));
+    const privacyEntries = sources.filter((file) => {
+      const normalized = file.replaceAll("\\", "/");
+      // The public guide explains data controls. It is not a settings entry.
+      if (normalized.includes("/app/docs/")) return false;
+      return /privacy-entry|Data & privacy/.test(readFileSync(file, "utf8"));
+    });
     expect(privacyEntries).toEqual([]);
 
     const migrations = files(join(root, "drizzle")).filter((file) => file.endsWith(".sql") && readFileSync(file, "utf8").includes("user_preferences"));

@@ -159,3 +159,32 @@ export const userPreferences = pgTable(
     ),
   ],
 );
+
+// A workbench document is the owner's editable text. Room is optional.
+// Deleting a room nulls only room_id; the document stays with its owner.
+export const workbenchDocuments = pgTable(
+  "workbench_documents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    roomId: uuid("room_id"),
+    title: text("title").notNull().default("Untitled"),
+    content: text("content").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("workbench_documents_user_updated_idx").on(table.userId, table.updatedAt),
+    index("workbench_documents_user_room_idx").on(table.userId, table.roomId),
+    foreignKey({
+      name: "workbench_documents_room_owner_fk",
+      columns: [table.roomId, table.userId],
+      foreignColumns: [rooms.id, rooms.userId],
+    }).onDelete("set null"),
+    check(
+      "workbench_documents_title_length",
+      sql`char_length(${table.title}) between 1 and 120 and ${table.title} = btrim(${table.title})`,
+    ),
+    check("workbench_documents_content_length", sql`char_length(${table.content}) <= 100000`),
+  ],
+);

@@ -274,6 +274,8 @@ Add a nullable `room_id` so general conversations continue to work.
 
 ## 10. Workbench
 
+**V1 is a persistent editable document, not the model below.** The shipped surface is one owner-scoped markdown document at `/workbench`, described in [WORKBENCH_V1.md](./WORKBENCH_V1.md). Deleting a Room clears only the document's `room_id`. V1 has no versions, types, collaboration, export, or automatic context injection. The rest of this section is the later target.
+
 Chat should not be the final destination for useful outputs. Workbench stores persistent structured work beside the Thread.
 
 Initial types:
