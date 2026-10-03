@@ -59,8 +59,8 @@ export const MessageRow = memo(function MessageRow({ message, initial, isLast, i
     const showWorkbench = Boolean(onContinueInWorkbench) && canContinueInWorkbench(message);
     return <article className="message-row assistant">
       <div className="message-content assistant">
-        <div className="message-author">Nibie{message.status === "streaming" ? " · Thinking" : message.status === "interrupted" ? " · Stopped" : message.status === "error" ? " · Couldn't respond" : ""}<MessageTime value={message.created_at} /></div>
-        {waiting ? <span className="thinking-dots" role="img" aria-label="Nibie is thinking"><i /><i /><i /></span> : message.status === "streaming" ? <div className="markdown is-streaming">{message.content}</div> : <MessageMarkdown content={message.content} />}
+        <div className="message-author">Nibie{message.status === "interrupted" ? " · Stopped" : message.status === "error" ? " · Couldn't respond" : ""}<MessageTime value={message.created_at} /></div>
+        {waiting ? <span className="thinking-dots" role="status" aria-label="Nibie is responding"><i /><i /><i /></span> : <><MessageMarkdown content={message.content} />{message.status === "streaming" && <span className="thinking-dots is-inline" role="status" aria-label="Nibie is responding"><i /><i /><i /></span>}</>}
         {(canCopy || canRetry || showWorkbench) && <div className="message-actions">
           {canCopy && <CopyButton text={message.content} label="Copy response" />}
           {canRetry && <button type="button" className="message-action" disabled={disabled} onClick={onRegenerate}><RefreshCw size={13} aria-hidden="true" /><span>Retry</span></button>}

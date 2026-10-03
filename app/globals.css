@@ -301,7 +301,7 @@ a.sidebar-workbench { margin-top: 8px; color: inherit; text-decoration: none; }
 .message-row.user { justify-content: flex-end; padding-left: 68px; }
 .assistant-badge { display: grid; place-items: center; flex: none; width: 27px; height: 27px; margin-top: 1px; border-radius: 9px; color: var(--accent); background: var(--bg-muted); }
 .message-content { min-width: 0; max-width: 100%; }
-.message-content.assistant { flex: 1; padding-top: 1px; }
+.message-content.assistant { flex: 1; max-width: min(100%, 680px); padding-top: 1px; }
 .message-author { margin: 0 0 8px; color: var(--text-3); font-size: 12px; font-weight: 600; }
 .message-time { margin-left: 8px; color: var(--text-4); font-size: 10px; font-weight: 500; letter-spacing: .01em; white-space: nowrap; }
 .message-column.user .message-time { display: block; margin: 2px 2px 0 0; text-align: right; }
@@ -397,24 +397,26 @@ a.sidebar-workbench { margin-top: 8px; color: inherit; text-decoration: none; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; } }
 
 /* M5: Markdown, code blocks, and last-turn controls */
-.markdown { min-width: 0; color: var(--text-2); font-size: 14px; line-height: 1.78; overflow-wrap: anywhere; }
+.markdown { min-width: 0; color: var(--text-2); font-size: 14px; line-height: 1.72; overflow-wrap: anywhere; }
 .markdown.is-streaming { white-space: pre-wrap; }
 .markdown > :first-child { margin-top: 0; }
 .markdown > :last-child { margin-bottom: 0; }
-.markdown p { margin: 0 0 12px; white-space: normal; }
-.markdown h1, .markdown h2, .markdown h3, .markdown h4 { margin: 18px 0 8px; color: var(--text); font-size: 15px; font-weight: 650; line-height: 1.4; }
-.markdown h1 { font-size: 17px; }
-.markdown ul, .markdown ol { margin: 0 0 12px; padding-left: 22px; }
+.markdown p { margin: 0 0 10px; white-space: normal; }
+.markdown h1, .markdown h2, .markdown h3, .markdown h4 { margin: 15px 0 6px; color: var(--text); font-size: 14px; font-weight: 600; line-height: 1.4; }
+.markdown h1 { font-size: 16px; }
+.markdown h2 { font-size: 15px; }
 .markdown ul { list-style: disc; }
 .markdown ol { list-style: decimal; }
+.markdown ul, .markdown ol { margin: 0 0 10px; padding-left: 20px; }
 .markdown li::marker { color: var(--text-4); }
-.markdown li { margin: 3px 0; }
+.markdown li { margin: 2px 0; }
 .markdown li > p { margin: 0; }
+.markdown strong { color: var(--text); font-weight: 600; }
 .markdown a { color: var(--link); text-decoration: underline; text-underline-offset: 2px; }
-.markdown blockquote { margin: 0 0 12px; padding: 2px 0 2px 14px; border-left: 3px solid var(--border-strong); color: var(--text-3); }
-.markdown hr { margin: 16px 0; border: 0; border-top: 1px solid var(--border); }
+.markdown blockquote { margin: 0 0 10px; padding: 2px 0 2px 12px; border-left: 2px solid var(--border-strong); color: var(--text-3); }
+.markdown hr { margin: 14px 0; border: 0; border-top: 1px solid var(--border-soft); }
 .markdown :not(pre) > code { padding: 1px 5px; border-radius: 5px; background: var(--bg-muted); color: var(--text); font-size: 12.5px; }
-.markdown-table { overflow-x: auto; margin: 0 0 12px; }
+.markdown-table { max-width: 100%; overflow-x: auto; margin: 0 0 10px; }
 .markdown table { border-collapse: collapse; font-size: 13px; }
 .markdown th, .markdown td { padding: 6px 10px; border: 1px solid var(--border); text-align: left; }
 .markdown th { background: var(--bg-subtle); font-weight: 600; }
@@ -442,6 +444,7 @@ a.sidebar-workbench { margin-top: 8px; color: inherit; text-decoration: none; }
 .skeleton-line.is-medium { width: 68%; }
 @keyframes skeleton-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 .thinking-dots { display: inline-flex; align-items: center; gap: 5px; height: 24px; }
+.thinking-dots.is-inline { height: 16px; margin-top: 2px; vertical-align: middle; }
 .thinking-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--text-4); animation: thinking-pulse 1.2s ease-in-out infinite; }
 .thinking-dots i:nth-child(2) { animation-delay: .15s; }
 .thinking-dots i:nth-child(3) { animation-delay: .3s; }
