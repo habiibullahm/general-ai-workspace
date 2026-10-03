@@ -124,6 +124,36 @@ describe("POST /api/chat", () => {
     expect(writes).toContainEqual(expect.objectContaining({ content: "Hello", status: "complete" }));
   });
 
+  it("correlates one request id across start, context, and completion without message content", async () => {
+    readyClient([]);
+    stream.mockResolvedValue(sseBody("Hello"));
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const request = validRequest();
+      request.headers.set("x-vercel-id", "icn1::abc123request");
+      const response = await POST(request);
+      expect(response.status).toBe(200);
+      await response.text();
+      const records = info.mock.calls.map(([line]) => JSON.parse(String(line)) as { event?: string; requestId?: string; profileIncluded?: boolean; roomIncluded?: boolean });
+      const started = records.find((record) => record.event === "chat.response.started");
+      const built = records.find((record) => record.event === "context.built");
+      const completed = records.find((record) => record.event === "chat.response.completed");
+      expect(started?.requestId).toBe("icn1::abc123request");
+      expect(built?.requestId).toBe(started?.requestId);
+      expect(completed?.requestId).toBe(started?.requestId);
+      expect(built).toMatchObject({ profileIncluded: false, roomIncluded: false, policyVersion: "context-policy-v1", truncated: false });
+      expect(built).not.toHaveProperty("pinsIncluded");
+      expect(built).not.toHaveProperty("filesIncluded");
+      const serialized = JSON.stringify([...info.mock.calls, ...error.mock.calls]);
+      expect(serialized).not.toContain("hello");
+      expect(serialized).not.toContain("Hello");
+    } finally {
+      info.mockRestore();
+      error.mockRestore();
+    }
+  });
+
   it("does not announce completion when the assistant response failed to persist", async () => {
     const writes: unknown[] = [];
     const results = [
@@ -179,7 +209,9 @@ describe("POST /api/chat", () => {
       const response = await POST(validRequest());
       expect(response.status).toBe(502);
       expect(await response.text()).not.toContain("AI_PROVIDER");
-      expect(logged).toHaveBeenCalledWith("Unsupported AI_PROVIDER; expected openai-compatible.");
+      const records = logged.mock.calls.map(([line]) => JSON.parse(String(line)) as { event?: string; code?: string; reason?: string });
+      expect(records).toContainEqual(expect.objectContaining({ event: "chat.response.failed", code: "AI_PROVIDER_FAILED", reason: "unsupported_provider", stage: "provider" }));
+      expect(JSON.stringify(records)).not.toContain("openai-compatible");
     } finally { logged.mockRestore(); }
   });
 
@@ -542,7 +574,9 @@ describe("POST /api/chat", () => {
         expect(claim).toHaveBeenCalled();
         const messages = stream.mock.calls[0][1] as { role: string; content: string }[];
         expect(messages[0]).toEqual({ role: "system", content: CONTEXT_POLICY_TEXT });
-        expect(logged).toHaveBeenCalledWith("preference_read_failed");
+        const records = logged.mock.calls.map(([line]) => JSON.parse(String(line)) as { event?: string; code?: string });
+        expect(records).toContainEqual(expect.objectContaining({ event: "preferences.read.failed", code: "PREFERENCE_READ_FAILED" }));
+        expect(JSON.stringify(records)).not.toContain("database unavailable");
       } finally { logged.mockRestore(); }
     });
 
